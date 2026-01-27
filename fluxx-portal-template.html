@@ -1,5 +1,5 @@
 {% assign pdc_globals = model.dyn_invoke_for(:pdc_globals) | default: {} %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/macfound/fluxx-pdc-integration@{{pdc_globals.environment | default: 'main'}}/css/pdc-panel.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/macfound/fluxx-pdc-integration@{{pdc_globals.branch | default: 'main'}}/css/pdc-panel.css">
 
 <script>
 var PDC_CONFIG = {
@@ -23,10 +23,10 @@ var PDC_CONFIG = {
 <!-- ========================================================================
      MODULES (load in order from CDN)
      ======================================================================== -->
-<script src="https://cdn.jsdelivr.net/gh/macfound/fluxx-pdc-integration@{{pdc_globals.environment | default: 'main'}}/js/pdc-oauth-client.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/macfound/fluxx-pdc-integration@{{pdc_globals.environment | default: 'main'}}/js/pdc-proposal-renderer.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/macfound/fluxx-pdc-integration@{{pdc_globals.environment | default: 'main'}}/js/pdc-panel-controller.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/macfound/fluxx-pdc-integration@{{pdc_globals.environment | default: 'main'}}/js/pdc-app.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/macfound/fluxx-pdc-integration@{{pdc_globals.branch | default: 'main'}}/js/pdc-oauth-client.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/macfound/fluxx-pdc-integration@{{pdc_globals.branch | default: 'main'}}/js/pdc-proposal-renderer.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/macfound/fluxx-pdc-integration@{{pdc_globals.branch | default: 'main'}}/js/pdc-panel-controller.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/macfound/fluxx-pdc-integration@{{pdc_globals.branch | default: 'main'}}/js/pdc-app.js"></script>
 <!-- ========================================================================
      AUTH UI
      ======================================================================== -->
