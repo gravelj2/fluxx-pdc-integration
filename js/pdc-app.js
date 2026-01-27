@@ -56,7 +56,7 @@
 
         // Merge configuration
         this.config = {
-            apiBaseUrl: options.apiBaseUrl || baseConfig.apiBaseUrl || 'https://api.philanthropydatacommons.org',
+            apiBaseUrl: options.apiBaseUrl || baseConfig.apiBaseUrl,
             selectors: Object.assign({}, DEFAULT_SELECTORS, options.selectors || {})
         };
 

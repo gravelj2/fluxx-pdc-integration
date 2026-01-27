@@ -5,12 +5,12 @@
 var PDC_CONFIG = {
     // OAuth settings - populate from Fluxx organization/site settings
     clientId: '{{ pdc_globals.oauth_client_id }}',
-    authEndpoint: '{{ pdc_globals.auth_endpoint | default: "https://auth.philanthropydatacommons.org/realms/pdc/protocol/openid-connect/auth" }}',
-    tokenEndpoint: '{{ pdc_globals.token_endpoint | default: "https://auth.philanthropydatacommons.org/realms/pdc/protocol/openid-connect/token" }}',
+    authEndpoint: '{{ pdc_globals.auth_endpoint }}',
+    tokenEndpoint: '{{ pdc_globals.token_endpoint }}',
     redirectUri: window.location.origin,
     
     // API settings
-    apiBaseUrl: '{{ pdc_globals.api_url | default: "https://api.philanthropydatacommons.org" }}',
+    apiBaseUrl: '{{ pdc_globals.api_url }}',
     // Storage namespace (prevents token collision if multiple orgs share browser)
     storagePrefix: 'pdc_{{ pdc_globals.client_id }}_',
 
