@@ -100,6 +100,6 @@ kept byte-identical to what is deployed/tested):
   containing `[` in non-production.
 - `pdc-consent/CurrentConsentLanguage.rb` — links to a preprod Fluxx URL
   (`macfound-dev.preprod.fluxxlabs.com/...`).
-- `submission-pipeline` production credentials intentionally unconfigured:
+- `pdc-map` production credentials intentionally unconfigured:
   `Get Auth Token from PDC.rb` raises for prod; both client-secret methods
   return `"Not Configured"`.

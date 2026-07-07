@@ -11,7 +11,7 @@ automates this will eventually live in this repo.
 
 ## The two components
 
-### 1. `submission-pipeline/` — staff-side push (Fluxx → PDC)
+### 1. `pdc-map/` — staff-side push (Fluxx → PDC)
 
 Sends grant data *to* the PDC once a grantee has consented. Organized one folder
 per Fluxx model, because that is the deployment unit:
@@ -51,7 +51,7 @@ redirect URI registered with the PDC OAuth provider.
 
 The Data Explorer's field matching is driven by a mapping generated on the
 staff side: block 4's Liquid calls `PDC_Get_PDC_Field_Mapping` (a `GrantRequest`
-method in `submission-pipeline/grant-request/`), which invokes
+method in `pdc-map/grant-request/`), which invokes
 `Get Field Mapping JSON for PDC Data Explorer` on the Integration Map record
 and returns Base64-encoded JSON that block 5 decodes. This is the only coupling
 between the two components.
@@ -72,9 +72,7 @@ between the two components.
 ## Repo layout
 
 ```
-submission-pipeline/   # staff-side Fluxx → PDC (Ruby, one folder per Fluxx model)
-data-explorer/         # grantee-facing PDC → Fluxx component (HTML/JS/Liquid, load order 0–5)
-docs/                  # architecture + deployment notes
-reference/             # non-deployed examples kept for reference
-archive/forms/         # superseded earlier iteration of the grantee component
+pdc-map/         # staff-side Fluxx → PDC (Ruby, one folder per Fluxx model)
+data-explorer/   # grantee-facing PDC → Fluxx component (HTML/JS/Liquid, load order 0–5)
+docs/            # architecture + deployment notes
 ```
