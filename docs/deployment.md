@@ -8,13 +8,12 @@ the source of truth for what is pasted into Fluxx.
 
 | Repo path | Fluxx destination |
 |---|---|
-| `submission-pipeline/grant-request/*.rb` | Methods/hooks on `GrantRequest`. Files named `AfterEnter…` / `PDC After Save…` are lifecycle hooks; the rest are named methods (deployed method name = file name without `.rb`) |
-| `submission-pipeline/pdc-integration-map/*.rb` | Methods/hooks on `MacModelTypeDynPdcApplicationForm1` (`Before New.rb` is the before-new hook) |
-| `submission-pipeline/pdc-integration-map/Show Mapped Fields.html` | Liquid block on the Integration Map form |
-| `submission-pipeline/pdc-consent/*.rb`, `Data Shared.liquid` | Methods / Liquid on `MacModelTypeDynPDCConsent` |
+| `pdc-map/grant-request/*.rb` | Methods/hooks on `GrantRequest`. Files named `AfterEnter…` / `PDC After Save…` are lifecycle hooks; the rest are named methods (deployed method name = file name without `.rb`) |
+| `pdc-map/pdc-integration-map/*.rb` | Methods/hooks on `MacModelTypeDynPdcApplicationForm1` (`Before New.rb` is the before-new hook) |
+| `pdc-map/pdc-integration-map/Show Mapped Fields.html` | Liquid block on the Integration Map form |
+| `pdc-map/pdc-consent/*.rb`, `Data Shared.liquid` | Methods / Liquid on `MacModelTypeDynPDCConsent` |
 | `data-explorer/0…5 *.html` | Blocks on the grantee-facing form/stencil, in numeric order |
 | `data-explorer/oauth-callback.html` | Page served at the OAuth redirect URI registered with PDC |
-| `reference/`, `archive/` | Not deployed |
 
 ## Order matters
 
