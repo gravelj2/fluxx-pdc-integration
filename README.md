@@ -1,20 +1,18 @@
 # PDC ↔ Fluxx Integration
 
-Integration between the MacArthur Foundation's Fluxx grants-management system and
+Integration between the Fluxx grants-management system and
 the [Philanthropy Data Commons](https://philanthropydatacommons.org/) (PDC).
 
-Fluxx is vendor-managed: nothing in this repo runs as a normal Ruby application.
 Every artifact here is deployed **by hand (for now) into the Fluxx admin UI** —
 Ruby files as *dynamic model methods/hooks* on a specific Fluxx model, and
-HTML/Liquid files as card blocks or stencil components. A deployment script that
-automates this will eventually live in this repo.
+HTML/Liquid files as card blocks or stencil components.
 
 ## The two components
 
 ### 1. `pdc-map/` — staff-side push (Fluxx → PDC)
 
-Sends grant data *to* the PDC once a grantee has consented. Organized one folder
-per Fluxx model, because that is the deployment unit:
+Sends grant data *to* the PDC once a grantee has consented. One folder
+per Fluxx model:
 
 | Folder | Fluxx model | Role |
 |---|---|---|
