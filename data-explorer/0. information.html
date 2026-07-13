@@ -1,0 +1,117 @@
+<style>
+    body {
+        font-family: system-ui, sans-serif;
+        padding: 40px;
+    }
+
+    details {
+        display: inline;
+    }
+
+    summary {
+        display: inline;
+        color: #0066cc;
+        cursor: pointer;
+        text-decoration: underline dotted;
+        font-size: inherit;
+    }
+
+    summary::-webkit-details-marker {
+        display: none;
+    }
+
+    summary::marker {
+        content: "";
+    }
+
+    .details-content {
+        display: block;
+        margin-top: 8px;
+        padding: 12px;
+        background: #f5f5f5;
+        border-left: 3px solid #0066cc;
+        font-size: 14px;
+        line-height: 1.5;
+        border-radius: 0 4px 4px 0;
+        max-width: 400px;
+    }
+
+    .pdc-data-preview {
+        margin: 20px 0;
+    }
+    .pdc-fields-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+    }
+    .pdc-fields-table th {
+        background-color: #f0f0f0;
+        padding: 10px;
+        text-align: left;
+        border-bottom: 2px solid #ddd;
+    }
+    .pdc-fields-table td {
+        padding: 8px;
+        border-bottom: 1px solid #eee;
+    }
+    .pdc-fields-table tbody tr:nth-child(even) {
+        background-color: #f8f8f8;
+    }
+    .pdc-fields-table tr.no-value td {
+        color: #999;
+    }
+</style>
+
+<details>
+    <summary>What's the Philanthropy Data Commons?</summary>
+    <span class="details-content">
+        The Philanthropy Data Commons (PDC) is a "shared data infrastructure"
+        with the end goal to reduce the burden of new grant applications. Click
+        <a
+            href="https://philanthropydatacommons.org/"
+            target="_blank"
+            rel="noopener"
+            >here</a
+        >
+        to learn more.
+    </span>
+    <span class="details-content"
+        >To begin, register a new account with the PDC. You will need this to
+        log in here.</span
+    >
+</details>
+<br />
+<details>
+    <summary>How do I contribute my data to the PDC?</summary>
+    <span class="details-content">
+        <ol class="pdc-guide-steps">
+            <li>
+                <strong>Consent to sharing.</strong>
+                Use the link below to review and grant consent to share this
+                application's data with the PDC.
+            </li>
+            <li>
+                <strong>Create a PDC account.</strong>
+                Reach out to the
+                <a
+                    href="https://www.philanthropydatacommons.org"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+                    Philanthropy Data Commons</a
+                >
+                to create an account so you can access and reuse data you have
+                submitted. Note: in the MacArthur portal, data is not sent
+                immediately after submitting your applicationand may not be
+                available when you first create your account.
+            </li>
+            <li>
+                <strong>Reuse your data.</strong>
+                On any funder using this feature in Fluxx, log in to the PDC and
+                launch the Data Explorer to begin populating an application with
+                data you have already submitted to the PDC.
+            </li>
+        </ol>
+    </span>
+</details>
+<br />

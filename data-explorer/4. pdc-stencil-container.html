@@ -1,0 +1,295 @@
+<div
+    class="pdc-auth-container"
+    id="pdc-auth-container"
+    role="region"
+    aria-label="PDC Integration"
+>
+    <!-- ============================================================
+       1. DATA CARRIERS  (hidden, rendered server-side)
+       ============================================================ -->
+
+    <!-- Field mapping from the Ruby method, Base64-encoded JSON.
+       File 6 (behavior) decodes this once and caches it. Data only.
+       Kept in this always-visible component so it is resolvable even
+       when the session-controls group is hidden. -->
+    {% assign mapping_data = model.PDC_Get_PDC_Field_Mapping %}
+    <div
+        id="pdc-field-mappings"
+        class="hidden"
+        data-field-mappings="{{ mapping_data }}"
+        aria-hidden="true"
+    ></div>
+
+    <!-- Consent state, resolved server-side via Liquid. dyn_related
+       finds the PdcConsent record linked to this grant. Lives here
+       with the journey so the on-ramp owns the state it displays.
+       has_consent drives the consent node below. -->
+    {% assign consentForm = 'MacModelTypeDynPdcConsent' | dyn_related:
+    'grant_or_request_id', model.id | last %} {% assign has_consent = false %}
+    {% if consentForm.consent_type == "Grant consent to share data with the PDC"
+    %} {% assign has_consent = true %} {% endif %}
+
+    <!-- ============================================================
+       2. JOURNEY  (always visible, never grouped)
+       Shows the whole path so a newcomer sees where login and the
+       Data Explorer fit, without being pushed to log in early. Only
+       consent has a true completion state. Steps 3 and 4 are labeled
+       "later" on purpose: a new org gets nothing back from login yet.
+       State is carried in text, not color alone (WCAG 1.4.1).
+
+       This section is pure Liquid + HTML + the native to-modal link,
+       so it works even if the behavior file (6) fails to load.
+       ============================================================ -->
+    <section class="pdc-journey" aria-labelledby="pdc-journey-heading">
+        <h3 id="pdc-journey-heading" class="pdc-journey-heading">
+            Working with the PDC
+        </h3>
+
+        <p class="pdc-phase-label">Contribute now</p>
+        <ol class="pdc-steps">
+            <li class="pdc-step pdc-step--available">
+                <span class="pdc-step-marker" aria-hidden="true">1</span>
+                <div class="pdc-step-body">
+                    <span class="pdc-step-title">Learn about the PDC</span>
+                    <span class="pdc-step-state">Start here</span>
+                    <a
+                        class="pdc-step-link"
+                        href="https://philanthropydatacommons.org/"
+                        target="_blank"
+                        rel="noopener"
+                        >What is the PDC?</a
+                    >
+                </div>
+            </li>
+
+            {% if has_consent %}
+            <li class="pdc-step pdc-step--complete">
+                <span class="pdc-step-marker" aria-hidden="true">&#10003;</span>
+                <div class="pdc-step-body">
+                    <span class="pdc-step-title"
+                        >Consent to share your data</span
+                    >
+                    <span class="pdc-step-state pdc-state-complete">Done</span>
+                    <a
+                        class="to-modal pdc-step-link"
+                        href="/machine_models/{{ consentForm.id }}/edit"
+                        data-on-success="refreshCaller,close"
+                        rel="noopener"
+                        >Review consent</a
+                    >
+                </div>
+            </li>
+            {% else %}
+            <li class="pdc-step pdc-step--action" aria-current="step">
+                <span class="pdc-step-marker" aria-hidden="true">2</span>
+                <div class="pdc-step-body">
+                    <span class="pdc-step-title"
+                        >Consent to share your data</span
+                    >
+                    <span class="pdc-step-state pdc-state-action"
+                        >Action needed</span
+                    >
+                    {% if consentForm %}
+                    <a
+                        class="to-modal pdc-step-cta"
+                        href="/machine_models/{{ consentForm.id }}/edit"
+                        data-on-success="refreshCaller,close"
+                        rel="noopener"
+                        >Consent to share</a
+                    >
+                    {% endif %}
+                </div>
+            </li>
+            {% endif %}
+        </ol>
+
+        <p class="pdc-phase-label">Reuse later</p>
+        <ol class="pdc-steps" start="3">
+            <li class="pdc-step pdc-step--later" id="pdc-step-login">
+                <span class="pdc-step-marker" aria-hidden="true">3</span>
+                <div class="pdc-step-body">
+                    <span class="pdc-step-title">Log in to the PDC</span>
+                    <span class="pdc-step-state"
+                        >Available once you confirm your organization has a PDC
+                        account</span
+                    >
+
+                    <!-- ── Session controls ─────────────────────────────────
+               Login / connected / launch / logout. Hidden until the
+               grant_request[pdc_account_exists] dropdown is "Yes".
+               The behavior file (last-loaded) toggles .hidden on this
+               wrapper via syncSessionControls(), and toggles login vs
+               authenticated WITHIN it via updateAuthUI(). Elements are
+               resolved by data-original-id, so keep the ids intact.
+
+               No native group here: a group cannot inject into the
+               journey list, so JS owns this visibility. -->
+                    <div
+                        class="pdc-session-controls hidden"
+                        id="pdc-session-controls"
+                    >
+                        <!-- Login (shown when user not authenticated) -->
+                        <div
+                            id="pdc-login-container"
+                            role="group"
+                            aria-label="PDC authentication"
+                        >
+                            <button
+                                id="pdc-login-btn"
+                                class="pdc-button"
+                                type="button"
+                                aria-describedby="pdc-login-desc"
+                            >
+                                Log in to PDC
+                            </button>
+                            <span id="pdc-login-desc" class="sr-only">
+                                Opens a popup window to authenticate with the
+                                Philanthropy Data Commons
+                            </span>
+                        </div>
+
+                        <!-- Authenticated (shown when user logged in) -->
+                        <div
+                            id="pdc-authenticated-container"
+                            class="hidden"
+                            role="group"
+                            aria-label="PDC session"
+                        >
+                            <div
+                                class="pdc-user-info"
+                                role="status"
+                                aria-live="polite"
+                                aria-atomic="true"
+                            >
+                                <div>
+                                    Connected as:
+                                    <strong id="pdc-user-name"></strong>
+                                </div>
+                                <div id="pdc-user-email"></div>
+                            </div>
+                            <br />
+                            <button
+                                id="pdc-launch-btn"
+                                class="pdc-button"
+                                type="button"
+                                aria-describedby="pdc-launch-desc"
+                            >
+                                Launch PDC Data Explorer
+                            </button>
+                            <span id="pdc-launch-desc" class="sr-only">
+                                Fetches your data from PDC and opens the
+                                explorer panel
+                            </span>
+                            <button
+                                id="pdc-logout-btn"
+                                class="pdc-button"
+                                type="button"
+                            >
+                                Log out from PDC
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </li>
+
+            <li class="pdc-step pdc-step--later">
+                <span class="pdc-step-marker" aria-hidden="true">4</span>
+                <div class="pdc-step-body">
+                    <span class="pdc-step-title"
+                        >Use the Data Explorer to fill this application</span
+                    >
+                    <span class="pdc-step-state"
+                        >After you log in, if you have data to reuse</span
+                    >
+                </div>
+            </li>
+        </ol>
+    </section>
+
+    <!-- ============================================================
+       SESSION CONTROLS now live inside journey step 3 above.
+       Visibility is JS-driven (see behavior file: syncSessionControls)
+       off the native grant_request[pdc_account_exists] dropdown, not a
+       Fluxx group, because a group cannot inject into the journey list.
+       ============================================================ -->
+
+    <!-- ============================================================
+       3. EXPLORER INFRASTRUCTURE  (always present, hidden until used)
+       The panel, drag ghost, and status region are not session
+       controls and must always exist for the behavior file to work,
+       so they stay in this always-visible component. The panel is
+       position:fixed and gets reparented to body on open, so its
+       location in the markup does not matter functionally.
+       ============================================================ -->
+    <div
+        class="pdc-floating-panel hidden"
+        id="pdcProposalsPanel"
+        tabindex="-1"
+        role="dialog"
+        aria-labelledby="pdcPanelTitle"
+        aria-modal="false"
+        aria-describedby="pdcPanelDesc"
+    >
+        <div class="pdc-panel-header" id="pdcPanelHeader">
+            <h2 id="pdcPanelTitle">PDC Data Explorer</h2>
+            <span id="pdcPanelDesc" class="sr-only">
+                Drag field values from proposals onto the form to populate
+                fields
+            </span>
+            <div class="pdc-panel-controls">
+                <button
+                    id="closeBtn"
+                    type="button"
+                    title="Close"
+                    aria-label="Close panel"
+                >
+                    &times;
+                </button>
+            </div>
+        </div>
+
+        <div class="pdc-panel-search">
+            <label for="searchInput" class="sr-only">Search PDC Data</label>
+            <input
+                type="search"
+                id="searchInput"
+                aria-label="Search proposals by opportunity or funder name"
+                placeholder="Search by opportunity or funder..."
+                autocomplete="off"
+            />
+        </div>
+
+        <div
+            class="pdc-panel-body"
+            id="panelBody"
+            role="list"
+            aria-label="Proposal entries"
+            aria-live="polite"
+        ></div>
+    </div>
+
+    <!-- Drag ghost (positioned offscreen, moved by drag handler) -->
+    <div class="pdc-drag-ghost" id="dragGhost" aria-hidden="true"></div>
+
+    <!-- Live region for status announcements (loading, errors) -->
+    <div
+        id="pdc-status"
+        class="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+    ></div>
+
+    <!-- Structure-ready signal. KEEP THIS in this always-visible
+       component, not in the grouped session-controls file. The
+       behavior file (6) refuses to init until _pdcStructureReady is
+       true; if this lived inside a hidden group and Fluxx lazy-renders
+       hidden groups, behavior would never initialize for the default
+       (No) state. MUST stay last so all markup above exists first. -->
+    <img
+        style="display: none"
+        src="/images/fluxx_engine/theme/default/icons/sitemap.png"
+        onload="window._pdcStructureReady = true"
+        alt=""
+    />
+</div>

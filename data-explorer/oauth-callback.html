@@ -1,0 +1,33 @@
+<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onload="(function() {
+  // PDC Oauth Callback
+  try {
+    var params = new URLSearchParams(window.location.search);
+    var code = params.get('code');
+    var state = params.get('state');
+    var error = params.get('error');
+    var errorDesc = params.get('error_description');
+    
+    if (!code && !state && !error) return;
+    if (!window.opener) return;
+    
+    try { window.opener.location.origin; } catch (e) { return; }
+    
+    var msg;
+    if (error) {
+      msg = { type: 'oauth_callback', error: error, error_description: errorDesc || '' };
+    } else if (code && state) {
+      msg = { type: 'oauth_callback', code: code, state: state };
+    } else {
+      msg = { type: 'oauth_callback', error: 'incomplete_response', error_description: 'Missing code or state' };
+    }
+    
+    window.opener.postMessage(msg, window.location.origin);
+    
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState({}, document.title, window.location.origin + window.location.pathname);
+    }
+
+    window.close();
+    
+  } catch (e) {}
+})();"></img>
