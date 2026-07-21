@@ -3,8 +3,8 @@
 
 # Attempt to grab the Access Token from the current record
 token_data = model.respond_to?(:authentication_token) && model.authentication_token.present? ? JSON.parse(model.authentication_token) : nil
-if token_data && token_data["access_token"] && 
-  token_data["expires_at"] && 
+if token_data && token_data["access_token"] &&
+  token_data["expires_at"] &&
   Time.now.to_i < token_data["expires_at"]
 
   # Token is still valid
@@ -12,21 +12,8 @@ if token_data && token_data["access_token"] &&
 else
   # Determine environment
   base_url = model.dyn_invoke_for(:"Get PDC Base URL")
-  is_test = base_url.include?("test")
 
-  # Get credentials based on environment
-  # These should be stored in Fluxx's secure credential storage
-  # or environment variables, not hardcoded
-  client_id = if is_test
-    # Fetch from secure storage: model.dyn_invoke_for(:"Get PDC Test Client ID")
-    "pdc-macfound-data-ingest"  # TEMPORARY - Move to secure storage
-  else
-    # Fetch from secure storage: model.dyn_invoke_for(:"Get PDC Prod Client ID")
-    raise "Production credentials not configured"
-  end
-
-  client_secret = if is_test
-    # Fetch from secure storage: 
+  client_secret = if base_url.include?("test")
     model.dyn_invoke_for(:"Get PDC Test Client Secret")
   else
     model.dyn_invoke_for(:"Get PDC Prod Client Secret")
@@ -34,8 +21,8 @@ else
 
   # Construct auth URL properly
   # PDC uses same domain for auth and API, just different paths
-  auth_url = if is_test
-    "https://auth-test.philanthropydatacommons.org/realms/pdc/protocol/openid-connect/token"
+  auth_url = if base_url.include?("test")
+    "https://auth.test.philanthropydatacommons.org/realms/pdc/protocol/openid-connect/token"
   elsif base_url.include?("api.philanthropy")
     "https://auth.philanthropydatacommons.org/realms/pdc/protocol/openid-connect/token"
   else
@@ -57,7 +44,7 @@ else
     response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|
       http.request(request)
     end
-    
+
     case response.code
     when "200"
       token_data = JSON.parse(response.body)
@@ -76,7 +63,7 @@ else
     else
       raise "Unexpected response (#{response.code}): #{response.body}"
     end
-    
+
   rescue Net::OpenTimeout, Net::ReadTimeout
     raise "Timeout connecting to PDC auth server"
   rescue SocketError, Errno::ECONNREFUSED
