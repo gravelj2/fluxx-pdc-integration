@@ -23,7 +23,7 @@ begin
   response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|
     http.request(request)
   end
-  
+
   case response.code
   when "200"
     pdc_base_fields = JSON.parse(response.body)
@@ -36,7 +36,7 @@ begin
     error_message = error_data['message'] || response.body
     raise "Failed to get base fields (#{response.code}): #{error_message}"
   end
-  
+
 rescue Net::OpenTimeout, Net::ReadTimeout
   raise "Timeout connecting to PDC API"
 rescue SocketError, Errno::ECONNREFUSED
@@ -47,7 +47,7 @@ end
 
 # Find the model attribute for PDC fields
 pdc_field_attribute = ModelAttribute.find_by(
-  model_type: "MacModelTypeDynPDCMappedField1", 
+  model_type: "MacModelTypeDynPdcMappedField1",
   name: "pdc_field"
 )
 
@@ -65,20 +65,20 @@ errors = []
 pdc_base_fields.each do |field|
   short_code = field['shortCode']
   label = field['label']
-  
+
   # Skip if essential data is missing
   if short_code.blank? || label.blank?
     errors << "Skipping field with missing shortCode or label"
     skipped_count += 1
     next
   end
-  
+
   # Check if value already exists
   existing_value = ModelAttributeValue.find_by(
     model_attribute_id: pdc_field_attribute.id,
     value: short_code
   )
-  
+
   if existing_value
     # Update description if changed (using label as description)
     if existing_value.description != label
