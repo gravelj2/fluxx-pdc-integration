@@ -30,8 +30,12 @@
 
 map_record = MacModelTypeDynPDCApplicationForm1.first
 
+# NOTE: this body is a Fluxx dynamic model method, not a real Ruby method, so a
+# top-level `return` raises LocalJumpError ("unexpected return") and corrupts the
+# rendered stencil (the error string is injected as HTML). Use a conditional
+# expression as the method's return value instead of an early `return`.
 if map_record.nil?
-  return ""
+  ""
+else
+  Base64.strict_encode64(map_record.dyn_invoke_for(:"Get Field Mapping JSON for PDC Data Explorer").to_json)
 end
-
-Base64.strict_encode64(map_record.dyn_invoke_for(:"Get Field Mapping JSON for PDC Data Explorer").to_json)
