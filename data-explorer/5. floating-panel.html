@@ -278,18 +278,30 @@
         // This avoids iterating all copies and always returns the
         // element the user is actually looking at.
         function $(id) {
+            // Primary: resolve by data-original-id, which Fluxx stamps on a
+            // fully-processed card (id "x" -> id "x-36" + data-original-id "x").
             var selector = '[data-original-id="' + id + '"]';
+
+            // Fallback: after a partial "refreshCaller" refresh, Fluxx re-injects
+            // the RAW stencil and does NOT re-stamp data-original-id or suffix
+            // ids — elements keep their authored id ("x", no "-36"). So also
+            // match by id: exactly "x", or "x-<suffix>" if a suffix got added.
+            var idSelector = '[id="' + id + '"],[id^="' + id + '-"]';
 
             // Try the active card first
             var card = getVisibleCard();
             if (card) {
-                var scoped = card.querySelector(selector);
+                var scoped =
+                    card.querySelector(selector) || card.querySelector(idSelector);
                 if (scoped) return scoped;
             }
 
             // Fall back to body-level (reparented panel, or no active card)
-            var bodyMatch = document.body.querySelector(selector);
-            return bodyMatch || null;
+            return (
+                document.body.querySelector(selector) ||
+                document.body.querySelector(idSelector) ||
+                null
+            );
         }
 
         // ── Locale-aware date/time formatter ─────────────────────
@@ -485,17 +497,29 @@
         }
 
         // ── PDC account gate ─────────────────────────────────────
-        // Visibility of the session controls (login / connected /
-        // launch / logout) is driven by the native dropdown
-        //   grant_request[pdc_account_exists]   Yes = "1", No = "0"
-        // The <li> and <select> share the same data-original-id, so we
-        // target the <select> specifically to read its value. Default No
-        // keeps the controls hidden so newcomers are not sent to a login
-        // that returns nothing. A native group cannot inject into our
-        // journey list, so JS owns this toggle.
-        function getAccountDropdown() {
+        // The account question ("do you already have a PDC account?") is
+        // a native Fluxx field, grant_request[pdc_account_exists]
+        // (Yes="1", No="0"). We do NOT move that field: moving vendor DOM
+        // is destroyed by Fluxx's partial "refreshCaller" refresh (e.g.
+        // saving the consent modal), which re-renders the container from
+        // the server stencil and never regenerates a relocated field.
+        // Instead:
+        //   - A PROXY <select data-original-id="pdc-account-proxy"> lives
+        //     in our stencil under journey step 3 (re-rendered intact by
+        //     any partial refresh).
+        //   - The native field stays where Fluxx puts it, hidden via CSS
+        //     (file 1). Fluxx keeps ownership + saves it on form save.
+        //   - We SEED the proxy from the native value, and on proxy
+        //     change WRITE the value back into the native <select> (plain
+        //     DOM) so it persists on the normal whole-form save.
+        //   - Session controls (step 4) show/hide off the PROXY value.
+        function getNativeAccountField() {
+            // Match by data-original-id (processed card) OR by the field's
+            // stable name attribute, which survives the post-refreshCaller
+            // raw state where data-original-id is absent.
             var sel =
-                'select[data-original-id="grant_request_pdc_account_exists"]';
+                'select[data-original-id="grant_request_pdc_account_exists"],' +
+                'select[name="grant_request[pdc_account_exists]"]';
             var card = getVisibleCard();
             if (card) {
                 var scoped = card.querySelector(sel);
@@ -504,21 +528,93 @@
             return document.body.querySelector(sel);
         }
 
-        function userHasPdcAccount() {
-            var dd = getAccountDropdown();
-            return !!dd && dd.value === "1";
+        function getAccountProxy() {
+            return $("pdc-account-proxy");
         }
 
-        // Show or hide the session controls under journey step 3, then
-        // sync the inner login/authenticated state only when shown.
+        // Show/hide is driven by the proxy (kept equal to native). Fall
+        // back to the native field if the proxy is not present yet.
+        function userHasPdcAccount() {
+            var proxy = getAccountProxy();
+            if (proxy && proxy.value !== "") return proxy.value === "1";
+            var native = getNativeAccountField();
+            return !!native && native.value === "1";
+        }
+
+        // Seed the proxy from the native field's saved value so a
+        // returning grantee sees their answer. Native is the source of
+        // truth. No DOM is moved. Safe to call repeatedly.
+        function syncAccountProxy() {
+            var proxy = getAccountProxy();
+            var native = getNativeAccountField();
+            if (!proxy || !native) return;
+            if (proxy.value !== native.value) proxy.value = native.value;
+        }
+
+        // Write the proxy answer into the native field so Fluxx saves it
+        // on the normal whole-form save. Plain DOM value set + a native
+        // change event (in case Fluxx form-dirty tracking listens).
+        function writeAccountAnswerToNative() {
+            var proxy = getAccountProxy();
+            var native = getNativeAccountField();
+            if (!proxy || !native) return;
+            if (native.value !== proxy.value) {
+                native.value = proxy.value;
+                try {
+                    native.dispatchEvent(new Event("change", { bubbles: true }));
+                } catch (e) {
+                    var evt = document.createEvent("HTMLEvents");
+                    evt.initEvent("change", true, false);
+                    native.dispatchEvent(evt);
+                }
+            }
+        }
+
+        // Expand the enclosing Fluxx collapsible group ("Contribute to
+        // the PDC") so the step-4 login container is actually visible.
+        // Fluxx hides a collapsed group's content via CSS
+        //   div.collapsible.form-element > div { display: none; }
+        // and shows it when the group has the `open` class. After the
+        // consent partial refresh the group re-renders COLLAPSED, so
+        // toggling the controls' own `hidden` class isn't enough. We only
+        // auto-expand when the answer is Yes; we never collapse a group
+        // the grantee opened.
+        function ensureGroupExpanded() {
+            var controls = $("pdc-session-controls");
+            if (!controls) return;
+            var group = controls.closest("div.collapsible.form-element");
+            if (!group || group.classList.contains("open")) return;
+            group.classList.add("open");
+            var header = group.querySelector(":scope > h3");
+            if (header) header.setAttribute("aria-expanded", "true");
+        }
+
+        // Seed the proxy, then show or hide the step-4 session controls
+        // off the answer and sync the inner login/authenticated state.
         function syncSessionControls() {
+            syncAccountProxy();
             var controls = $("pdc-session-controls");
             var step = $("pdc-step-login");
             var show = userHasPdcAccount();
             if (controls) controls.classList.toggle("hidden", !show);
             if (step) step.classList.toggle("pdc-step--active", show);
-            if (show) updateAuthUI();
+            if (show) {
+                ensureGroupExpanded();
+                updateAuthUI();
+            }
         }
+
+        // ── Re-sync after a Fluxx re-render ──────────────────────
+        // Fluxx's partial "refreshCaller" refresh re-renders the stencil
+        // container from the server source: the proxy comes back blank
+        // and the controls back to their hidden default until we re-seed
+        // and re-apply show/hide. Single re-heal entry point, driven by
+        // the childList observer (primary) and the file-4 <img onload>
+        // (secondary). Idempotent + card-scoped. Only active once
+        // behavior has initialized.
+        window._pdcResync = function () {
+            if (window._pdcBehaviorInitialized) syncSessionControls();
+        };
 
         // ── Stale card sync ──────────────────────────────────────
         // When Fluxx shows a different card, that card's stencil
@@ -554,6 +650,59 @@
                 subtree: true,
             });
         }
+
+        // ── Partial-refresh re-sync observer ─────────────────────
+        // Fluxx's "refreshCaller" partial refresh (e.g. saving the
+        // consent modal) replaces the stencil subtree with a fresh server
+        // render: the proxy comes back blank and the session controls
+        // back to their hidden default. Nothing fires a Fluxx event for
+        // this, and we do NOT rely on the file-4 <img onload> re-firing
+        // (cached src, no guarantee). So we watch the card container for
+        // added nodes and, when our stencil (or the native field)
+        // reappears, re-seed + re-apply show/hide via _pdcResync.
+        // Debounced so a burst of refresh mutations collapses into one
+        // resync; filtered to nodes that actually touch our markup.
+        var resyncTimer = null;
+        function scheduleResync() {
+            if (resyncTimer) return;
+            resyncTimer = setTimeout(function () {
+                resyncTimer = null;
+                if (window._pdcResync) window._pdcResync();
+            }, 80);
+        }
+
+        function nodeTouchesPdc(node) {
+            if (!node || node.nodeType !== 1) return false; // elements only
+            // Match by data-original-id (processed card) OR authored id /
+            // field name (post-refreshCaller raw state).
+            var pdcSelector =
+                '[data-original-id="pdc-auth-container"],[id="pdc-auth-container"],[id^="pdc-auth-container-"],' +
+                '[data-original-id="pdc-account-proxy"],[id="pdc-account-proxy"],[id^="pdc-account-proxy-"],' +
+                'select[data-original-id="grant_request_pdc_account_exists"],' +
+                'select[name="grant_request[pdc_account_exists]"]';
+            if (node.matches && node.matches(pdcSelector)) return true;
+            if (node.querySelector && node.querySelector(pdcSelector))
+                return true;
+            return false;
+        }
+
+        var refreshObserver = new MutationObserver(function (mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+                var added = mutations[i].addedNodes;
+                for (var j = 0; j < added.length; j++) {
+                    if (nodeTouchesPdc(added[j])) {
+                        scheduleResync();
+                        return;
+                    }
+                }
+            }
+        });
+
+        var refreshRoot = cardTable || document.body;
+        refreshObserver.observe(refreshRoot, {
+            childList: true,
+            subtree: true,
+        });
 
         var FIELDS_PER_PAGE = 50;
 
@@ -1042,14 +1191,20 @@
         // churn because the listener lives on a stable ancestor
         // and matches the clicked element at event time.
 
+        // Match the clicked element (or an ancestor) by data-original-id,
+        // with an id fallback for the post-refreshCaller raw-stencil state
+        // where Fluxx has not stamped data-original-id (id is the authored
+        // "x" or a suffixed "x-36"). Same rationale as $().
         function findDelegateTarget(event, attrValue) {
             var el = event.target;
             while (el && el !== document.body) {
-                if (
-                    el.getAttribute &&
-                    el.getAttribute("data-original-id") === attrValue
-                )
-                    return el;
+                if (el.getAttribute) {
+                    if (el.getAttribute("data-original-id") === attrValue)
+                        return el;
+                    var id = el.id;
+                    if (id && (id === attrValue || id.indexOf(attrValue + "-") === 0))
+                        return el;
+                }
                 el = el.parentElement;
             }
             return null;
@@ -1264,13 +1419,20 @@
             }, 500);
         });
 
-        /* ── Account dropdown (delegation) ────────────────────────── */
-        // grant_request[pdc_account_exists] controls whether the session
-        // controls under step 3 are shown. Change bubbles to body; we read
-        // the new value and re-sync. If a future Fluxx version stops the
-        // change from bubbling, attach this directly to getAccountDropdown().
+        /* ── Account proxy dropdown (delegation) ──────────────────── */
+        // Our step-3 proxy select controls whether the step-4 session
+        // controls show. On change we write the answer into the hidden
+        // native field (so it persists on form save), then re-sync
+        // show/hide. Change bubbles to body. We also handle a change
+        // fired on the native field directly (some other path sets it):
+        // just re-seed the proxy + re-sync.
         document.body.addEventListener("change", function (e) {
-            if (findDelegateTarget(e, "grant_request_pdc_account_exists")) {
+            if (findDelegateTarget(e, "pdc-account-proxy")) {
+                writeAccountAnswerToNative();
+                syncSessionControls();
+            } else if (
+                findDelegateTarget(e, "grant_request_pdc_account_exists")
+            ) {
                 syncSessionControls();
             }
         });
