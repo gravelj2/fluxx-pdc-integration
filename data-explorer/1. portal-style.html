@@ -704,14 +704,19 @@
         align-self: flex-start;
     }
 
-    /* Fluxx's portal CSS applies `.card a { font-weight: bold }` to every
-       anchor in a card, which re-bolds our step links/CTA (they are <a>s).
-       Scope by .pdc-journey so these selectors out-specify `.card a`
-       (0,2,1 > 0,1,1) and render at normal weight like the login buttons —
-       no !important needed. */
-    .pdc-journey a.pdc-step-cta,
-    .pdc-journey a.pdc-step-link {
+    /* Fluxx's portal CSS applies `.card a { font-weight: bold }` and
+       `.card .detail a { color: #0047bb }` (blue) to every anchor in a card,
+       which re-bolds and re-colors our step links/CTA (they are <a>s). Scope
+       through .pdc-step-body so these selectors clearly out-specify Fluxx's
+       (0,3,1 > 0,2,1, so load order doesn't matter) and render the consent
+       CTA like the login buttons: normal weight, black text. */
+    .pdc-journey .pdc-step-body a.pdc-step-cta,
+    .pdc-journey .pdc-step-body a.pdc-step-link {
         font-weight: normal;
+    }
+
+    .pdc-journey .pdc-step-body a.pdc-step-cta {
+        color: #000;
     }
 
     .pdc-step-cta:hover {
