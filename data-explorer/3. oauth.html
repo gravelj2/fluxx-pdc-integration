@@ -93,60 +93,146 @@
                             code_challenge_method: "S256",
                         });
 
-                        this.popupWindow = this.openPopup(
-                            `${this.config.authorizationEndpoint}?${params}`,
-                        );
+                        // COOP `same-origin-allow-popups` severs window.opener
+                        // when the popup goes cross-origin to the auth server, so
+                        // the popup can't postMessage back. It lands same-origin
+                        // though, so it hands the result back via a BroadcastChannel
+                        // (instant) + a localStorage key (durable fallback). We open
+                        // the channel and the storage listener BEFORE opening the
+                        // popup so no result is missed, and also poll the key in case
+                        // the write lands before a listener attaches. The opener holds
+                        // the popup reference and closes it (opener->popup survives
+                        // COOP). onResult is dedup-guarded so channel/storage/poll fire
+                        // the handoff exactly once.
+                        const RESULT_KEY = "pdc_oauth_result";
+                        let settled = false;
+                        let bc = null;
+                        let pollInterval = null;
 
-                        const messageHandler = async (event) => {
-                            if (
-                                event.origin !== window.location.origin ||
-                                event.data.type !== "oauth_callback"
-                            ) {
-                                return;
+                        const teardown = () => {
+                            window.removeEventListener("storage", storageHandler);
+                            if (pollInterval) {
+                                clearInterval(pollInterval);
+                                pollInterval = null;
                             }
+                            if (this.popupCheckInterval) {
+                                clearInterval(this.popupCheckInterval);
+                                this.popupCheckInterval = null;
+                            }
+                            if (bc) {
+                                try {
+                                    bc.close();
+                                } catch (e) {}
+                                bc = null;
+                            }
+                        };
 
-                            clearInterval(this.popupCheckInterval);
-                            this.popupCheckInterval = null;
-                            window.removeEventListener(
-                                "message",
-                                messageHandler,
-                            );
+                        const onResult = async (data) => {
+                            if (settled) return;
+                            if (!data || data.type !== "oauth_callback") return;
+                            settled = true;
+
+                            teardown();
                             this.popupWindow?.close();
+                            try {
+                                localStorage.removeItem(RESULT_KEY);
+                            } catch (e) {}
 
-                            if (event.data.error) {
-                                reject(
-                                    new Error(
-                                        `OAuth error: ${event.data.error}`,
-                                    ),
-                                );
+                            if (data.error) {
+                                reject(new Error(`OAuth error: ${data.error}`));
                                 return;
                             }
 
                             try {
-                                resolve(
-                                    await this.handleCallbackData(event.data),
-                                );
+                                resolve(await this.handleCallbackData(data));
                             } catch (error) {
                                 reject(error);
                             }
                         };
 
-                        window.addEventListener("message", messageHandler);
+                        // Normalize a stored result (no `type` field) to a message.
+                        const readStoredResult = () => {
+                            try {
+                                const raw = localStorage.getItem(RESULT_KEY);
+                                if (!raw) return null;
+                                const parsed = JSON.parse(raw);
+                                return {
+                                    type: "oauth_callback",
+                                    code: parsed.code,
+                                    state: parsed.state,
+                                    error: parsed.error,
+                                    error_description: parsed.error_description,
+                                };
+                            } catch (e) {
+                                return null;
+                            }
+                        };
 
+                        const storageHandler = (event) => {
+                            if (event.key !== RESULT_KEY || !event.newValue) return;
+                            const data = readStoredResult();
+                            if (data) onResult(data);
+                        };
+
+                        try {
+                            bc = new BroadcastChannel("pdc_oauth_channel");
+                            bc.onmessage = (event) => onResult(event.data);
+                        } catch (e) {
+                            bc = null;
+                        }
+                        window.addEventListener("storage", storageHandler);
+
+                        // Clear any stale result from a prior attempt before we start.
+                        try {
+                            localStorage.removeItem(RESULT_KEY);
+                        } catch (e) {}
+
+                        this.popupWindow = this.openPopup(
+                            `${this.config.authorizationEndpoint}?${params}`,
+                        );
+
+                        // The popup writes its result to localStorage/broadcast and
+                        // then closes ITSELF. Cross-window storage visibility is not
+                        // instantaneous, so `popup.closed` frequently flips true a beat
+                        // BEFORE the result is readable in this window. Treating a closed
+                        // popup as an immediate cancellation therefore races the result
+                        // and wrongly rejects with "cancelled" (the bug this fixes).
+                        //
+                        // So on close we DON'T reject right away: we enter a short grace
+                        // window, polling for the result, and only conclude "cancelled"
+                        // if nothing arrives within it. The BroadcastChannel/storage/poll
+                        // paths above still resolve the moment the result appears.
+                        let closedAt = 0;
+                        const GRACE_MS = 2000;
                         this.popupCheckInterval = setInterval(() => {
+                            if (settled) return;
+
+                            // Always try the result first, regardless of popup state.
+                            const pending = readStoredResult();
+                            if (pending) {
+                                onResult(pending);
+                                return;
+                            }
+
                             if (this.popupWindow?.closed) {
+                                if (!closedAt) {
+                                    closedAt = Date.now();
+                                    return; // start the grace window
+                                }
+                                if (Date.now() - closedAt < GRACE_MS) {
+                                    return; // still waiting for the result to land
+                                }
+                                // Grace elapsed with no result: real cancellation.
+                                settled = true;
+                                teardown();
                                 this.cleanup();
-                                window.removeEventListener(
-                                    "message",
-                                    messageHandler,
-                                );
                                 reject(
                                     new Error(
                                         "Authentication cancelled by user",
                                     ),
                                 );
                             }
-                        }, 500);
+                        }, 200);
                     } catch (error) {
                         this.cleanup();
                         reject(error);

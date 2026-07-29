@@ -28,7 +28,7 @@
 
 # ---- Method body ----
 
-map_record = MacModelTypeDynPDCApplicationForm1.first
+map_record = MacModelTypeDynPdcApplicationForm1.first
 
 # NOTE: this body is a Fluxx dynamic model method, not a real Ruby method, so a
 # top-level `return` raises LocalJumpError ("unexpected return") and corrupts the

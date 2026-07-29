@@ -653,8 +653,9 @@
     }
 
     .pdc-step--action .pdc-step-marker {
-        background: #2c3e50;
-        color: #fff;
+        background: #fff;
+        border: 2px solid #3498db;
+        color: #1f6391;
     }
 
     .pdc-step--later .pdc-step-marker {
@@ -687,21 +688,24 @@
         border-radius: 3px;
     }
 
+    /* Matches the login buttons (.pdc-button): white bg, grey border,
+       dark text. Kept as an <a class="to-modal"> so native Fluxx still
+       opens the consent modal. */
     .pdc-step-cta {
         display: inline-block;
         margin-top: 6px;
         padding: 8px 16px;
-        background: #2c3e50;
-        color: #fff;
-        font-size: 13px;
-        font-weight: 600;
+        background-color: #fff;
+        border: 1px solid #ccc;
+        color: #2c3e50;
+        font-size: 14px;
         text-decoration: none;
         border-radius: 4px;
         align-self: flex-start;
     }
 
     .pdc-step-cta:hover {
-        background: #1f2d3d;
+        background-color: #f5f5f5;
         text-decoration: none;
     }
 
@@ -719,40 +723,8 @@
         display: none;
     }
 
-    /* Session controls nested under journey step 4 (the login container). */
+    /* Session controls nested under journey step 3 */
     .pdc-session-controls {
         margin-top: 10px;
-    }
-
-    .pdc-account-gate {
-        margin-top: 10px;
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
-
-    .pdc-account-gate-label {
-        font-size: 13px;
-        font-weight: 600;
-        color: #2c3e50;
-    }
-
-    .pdc-account-gate-select {
-        max-width: 260px;
-        padding: 8px 10px;
-        font-size: 13px;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        background-color: #fff;
-    }
-
-    .pdc-account-gate-select:focus-visible {
-        outline: 2px solid #2c3e50;
-        outline-offset: 1px;
-        border-color: #3498db;
-    }
-
-    li.notable[data-notable-attribute="pdc_account_exists"] {
-        display: none !important;
     }
 </style>
