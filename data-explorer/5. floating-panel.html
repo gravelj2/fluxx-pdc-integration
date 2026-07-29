@@ -278,18 +278,33 @@
         // This avoids iterating all copies and always returns the
         // element the user is actually looking at.
         function $(id) {
+            // Primary: resolve by data-original-id, which Fluxx stamps on a
+            // fully-processed card (authored id "x" -> id "x-36" + a
+            // data-original-id "x").
             var selector = '[data-original-id="' + id + '"]';
 
-            // Try the active card first
+            // Fallback: after a partial "refreshCaller" refresh (e.g. saving the
+            // consent modal), Fluxx re-injects the RAW stencil and does NOT
+            // re-stamp data-original-id — elements keep only their authored id
+            // ("x", or a suffixed "x-36"). Without this fallback, $() returns
+            // null post-refresh and the gate can't toggle the login controls.
+            var idSelector = '[id="' + id + '"],[id^="' + id + '-"]';
+
+            // Try the active card first.
             var card = getVisibleCard();
             if (card) {
-                var scoped = card.querySelector(selector);
+                var scoped =
+                    card.querySelector(selector) ||
+                    card.querySelector(idSelector);
                 if (scoped) return scoped;
             }
 
-            // Fall back to body-level (reparented panel, or no active card)
-            var bodyMatch = document.body.querySelector(selector);
-            return bodyMatch || null;
+            // Fall back to body-level (reparented panel, or no active card).
+            return (
+                document.body.querySelector(selector) ||
+                document.body.querySelector(idSelector) ||
+                null
+            );
         }
 
         // ── Locale-aware date/time formatter ─────────────────────
@@ -503,9 +518,33 @@
         // <select> in the stencil: Fluxx's stencil sanitizer strips a
         // text block that embeds a rogue form control, which blanked the
         // whole journey (the regression this restore fixes).
-        function getAccountDropdown() {
+        // Show/hide is driven by the PROXY value (kept equal to native). Fall
+        // back to the native field if the proxy is not present yet.
+        function userHasPdcAccount() {
+            var proxy = getAccountProxy();
+            if (proxy && proxy.value !== "") return proxy.value === "1";
+            var native = getNativeAccountField();
+            return !!native && native.value === "1";
+        }
+
+        // ── Account gate: proxy <-> native sync ─────────────────────
+        // The grantee answers a PROXY <select id="pdc-account-proxy"> authored
+        // in journey Step 3 (file 4). The NATIVE Fluxx field
+        //   grant_request[pdc_account_exists]
+        // stays hidden in its own Fluxx slot (file 1). We do NOT move the
+        // native field: moving it puts its only copy in the journey slot, which
+        // Fluxx's "refreshCaller" partial refresh destroys. Instead the proxy
+        // lives in the journey stencil so it re-renders INTACT on refresh, and
+        // we:
+        //   - SEED the proxy from the native saved value (native = source of
+        //     truth) on load and after each refresh, and
+        //   - on proxy change, WRITE the value back into the native <select> +
+        //     fire a native change event, so Fluxx saves it on the normal form
+        //     save.
+        function getNativeAccountField() {
             var sel =
-                'select[data-original-id="grant_request_pdc_account_exists"]';
+                'select[data-original-id="grant_request_pdc_account_exists"],' +
+                'select[name="grant_request[pdc_account_exists]"]';
             var card = getVisibleCard();
             if (card) {
                 var scoped = card.querySelector(sel);
@@ -514,14 +553,45 @@
             return document.body.querySelector(sel);
         }
 
-        function userHasPdcAccount() {
-            var dd = getAccountDropdown();
-            return !!dd && dd.value === "1";
+        function getAccountProxy() {
+            return $("pdc-account-proxy");
         }
 
-        // Show or hide the session controls under journey step 3, then
-        // sync the inner login/authenticated state only when shown.
+        // Seed the proxy from the native field's saved value. Native is the
+        // source of truth. Safe to call repeatedly (e.g. after a refresh, when
+        // the proxy re-renders blank and must be re-seeded).
+        function syncAccountProxy() {
+            var proxy = getAccountProxy();
+            var native = getNativeAccountField();
+            if (!proxy || !native) return;
+            if (proxy.value !== native.value) proxy.value = native.value;
+        }
+
+        // Write the proxy answer into the native field so Fluxx saves it on the
+        // normal whole-form save. Plain DOM value set + a native change event
+        // (in case Fluxx form-dirty tracking listens).
+        function writeAccountAnswerToNative() {
+            var proxy = getAccountProxy();
+            var native = getNativeAccountField();
+            if (!proxy || !native) return;
+            if (native.value !== proxy.value) {
+                native.value = proxy.value;
+                try {
+                    native.dispatchEvent(
+                        new Event("change", { bubbles: true }),
+                    );
+                } catch (e) {
+                    var evt = document.createEvent("HTMLEvents");
+                    evt.initEvent("change", true, false);
+                    native.dispatchEvent(evt);
+                }
+            }
+        }
+
+        // Seed the proxy, then show or hide the session controls under journey
+        // step 3, then sync the inner login/authenticated state.
         function syncSessionControls() {
+            syncAccountProxy();
             var controls = $("pdc-session-controls");
             var step = $("pdc-step-login");
             var show = userHasPdcAccount();
@@ -564,6 +634,55 @@
                 subtree: true,
             });
         }
+
+        // ── Re-seed the proxy after a Fluxx partial refresh ──────
+        // Fluxx's "refreshCaller" refresh (e.g. saving the consent modal)
+        // re-renders our journey stencil from source: the proxy <select> comes
+        // back INTACT but BLANK, so it must be re-seeded from the saved native
+        // value, and the gate re-applied. Nothing fires a Fluxx event for this,
+        // so we watch the card container for added nodes and, when our stencil
+        // (pdc-auth-container) / the proxy / the native field re-appears, re-run
+        // syncSessionControls() (which re-seeds via syncAccountProxy). Debounced
+        // so a burst of refresh mutations collapses into one pass; filtered to
+        // nodes that actually touch our markup so it stays cheap.
+        var refreshResyncTimer = null;
+        function scheduleRefreshResync() {
+            if (refreshResyncTimer) return;
+            refreshResyncTimer = setTimeout(function () {
+                refreshResyncTimer = null;
+                syncSessionControls();
+            }, 80);
+        }
+
+        function nodeTouchesPdc(node) {
+            if (!node || node.nodeType !== 1) return false; // elements only
+            var sel =
+                '[data-original-id="pdc-auth-container"],[id="pdc-auth-container"],[id^="pdc-auth-container-"],' +
+                '[data-original-id="pdc-account-proxy"],[id="pdc-account-proxy"],[id^="pdc-account-proxy-"],' +
+                'select[data-original-id="grant_request_pdc_account_exists"],' +
+                'select[name="grant_request[pdc_account_exists]"]';
+            if (node.matches && node.matches(sel)) return true;
+            if (node.querySelector && node.querySelector(sel)) return true;
+            return false;
+        }
+
+        var refreshObserver = new MutationObserver(function (mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+                var added = mutations[i].addedNodes;
+                for (var j = 0; j < added.length; j++) {
+                    if (nodeTouchesPdc(added[j])) {
+                        scheduleRefreshResync();
+                        return;
+                    }
+                }
+            }
+        });
+
+        var refreshRoot = cardTable || document.body;
+        refreshObserver.observe(refreshRoot, {
+            childList: true,
+            subtree: true,
+        });
 
         var FIELDS_PER_PAGE = 50;
 
@@ -1052,15 +1171,24 @@
         // churn because the listener lives on a stable ancestor
         // and matches the clicked element at event time.
 
-        // Match the clicked element (or an ancestor) by data-original-id.
+        // Match the clicked element (or an ancestor) by data-original-id, with
+        // an id fallback for the post-refreshCaller raw-stencil state where
+        // Fluxx has not stamped data-original-id (id is the authored "x" or a
+        // suffixed "x-36"). Same rationale as $().
         function findDelegateTarget(event, attrValue) {
             var el = event.target;
             while (el && el !== document.body) {
-                if (
-                    el.getAttribute &&
-                    el.getAttribute("data-original-id") === attrValue
-                )
-                    return el;
+                if (el.getAttribute) {
+                    if (el.getAttribute("data-original-id") === attrValue)
+                        return el;
+                    var id = el.id;
+                    if (
+                        id &&
+                        (id === attrValue ||
+                            id.indexOf(attrValue + "-") === 0)
+                    )
+                        return el;
+                }
                 el = el.parentElement;
             }
             return null;
@@ -1275,13 +1403,19 @@
             }, 500);
         });
 
-        /* ── Account dropdown (delegation) ────────────────────────── */
-        // grant_request[pdc_account_exists] controls whether the session
-        // controls under step 3 are shown. Change bubbles to body; we read
-        // the new value and re-sync. If a future Fluxx version stops the
-        // change from bubbling, attach this directly to getAccountDropdown().
+        /* ── Account proxy dropdown (delegation) ──────────────────── */
+        // The step-3 proxy select controls whether the session controls show.
+        // On change we write the answer into the hidden native field (so it
+        // persists on the normal form save), then re-sync show/hide. Change
+        // bubbles to body. We also handle a change fired on the native field
+        // directly (some other path sets it): just re-seed the proxy + re-sync.
         document.body.addEventListener("change", function (e) {
-            if (findDelegateTarget(e, "grant_request_pdc_account_exists")) {
+            if (findDelegateTarget(e, "pdc-account-proxy")) {
+                writeAccountAnswerToNative();
+                syncSessionControls();
+            } else if (
+                findDelegateTarget(e, "grant_request_pdc_account_exists")
+            ) {
                 syncSessionControls();
             }
         });
@@ -1346,13 +1480,13 @@
         var initSyncTries = 0;
         var initSyncTimer = setInterval(function () {
             initSyncTries++;
-            var dd = getAccountDropdown();
-            // Re-apply the gate on every tick while we wait for the card
-            // to become active and the dropdown to hydrate.
+            // The native field is the source of truth we seed the proxy from.
+            var native = getNativeAccountField();
+            // Re-apply the gate (which re-seeds the proxy) on every tick while
+            // we wait for the card to become active and the field to hydrate.
             syncSessionControls();
-            // Stop once the dropdown is resolvable (value is readable),
-            // or after ~3s so we don't poll indefinitely.
-            if ((dd && dd.value !== undefined) || initSyncTries >= 30) {
+            // Stop once the native field is resolvable, or after ~3s.
+            if ((native && native.value !== undefined) || initSyncTries >= 30) {
                 clearInterval(initSyncTimer);
             }
         }, 100);

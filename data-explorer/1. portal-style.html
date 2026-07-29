@@ -724,6 +724,42 @@
         text-decoration: none;
     }
 
+    /* Account gate: the grantee answers a PROXY <select> we author in journey
+       Step 3 (survives the consent refreshCaller because it re-renders with the
+       journey). The NATIVE Fluxx field stays hidden in its own slot — Fluxx
+       still owns + saves it; the behavior file syncs proxy <-> native. */
+    li.notable[data-notable-attribute="pdc_account_exists"] {
+        display: none !important;
+    }
+
+    .pdc-account-gate {
+        margin-top: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .pdc-account-gate-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: #2c3e50;
+    }
+
+    .pdc-account-gate-select {
+        max-width: 260px;
+        padding: 8px 10px;
+        font-size: 13px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background-color: #fff;
+    }
+
+    .pdc-account-gate-select:focus-visible {
+        outline: 2px solid #2c3e50;
+        outline-offset: 1px;
+        border-color: #3498db;
+    }
+
     .pdc-step--active .pdc-step-marker {
         background: #fff;
         border: 2px solid #3498db;
