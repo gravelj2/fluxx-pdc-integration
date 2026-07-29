@@ -841,54 +841,6 @@
                 hasFormBody: !!getFormBody(card),
             };
         },
-
-        /**
-         * Account-exists gate (replaces the old native Fluxx group).
-         *
-         * The session-controls (login / connected-as / launch / logout)
-         * now live in the always-visible stencil (file 4) under the Data
-         * Explorer step, alongside the vendor pdc_account_exists dropdown.
-         * Their show/hide is driven by that dropdown instead of a Fluxx
-         * group, so the logic lives here in the file that already runs and
-         * resolves fields within the active card.
-         *
-         * Scoping matches the rest of this file: everything is resolved
-         * WITHIN getActiveCard(), so the many reloaded detail-container
-         * instances never cross-wire. The dropdown is found by
-         * data-original-id (Fluxx renames the raw id per instance, e.g.
-         * -36, but preserves data-original-id). Binding is marked on the
-         * live dropdown node (data-pdc-gate-bound) rather than a global
-         * flag, because each card instance has its own fresh DOM after a
-         * reload and must re-bind to it. Safe to call repeatedly.
-         */
-        syncSessionControlsGate: function () {
-            var card = getActiveCard();
-            if (!card) return;
-
-            var dropdown = card.querySelector(
-                "select[data-original-id='grant_request_pdc_account_exists']",
-            );
-            var controls = card.querySelector("#pdc-session-controls");
-            if (!dropdown || !controls) return;
-
-            function applyGate() {
-                // "Yes" (value 1) shows the controls; anything else hides.
-                if (dropdown.value === "1") {
-                    controls.classList.remove("hidden");
-                } else {
-                    controls.classList.add("hidden");
-                }
-            }
-
-            // Idempotent: bind the change listener once per live node.
-            if (dropdown.getAttribute("data-pdc-gate-bound") !== "true") {
-                dropdown.addEventListener("change", applyGate);
-                dropdown.setAttribute("data-pdc-gate-bound", "true");
-            }
-
-            // Apply current value now so the default (No) hides on load.
-            applyGate();
-        },
     };
 
     // ============================================================
@@ -990,22 +942,10 @@
     window.fluxxAPI = fluxxAPI;
     window.DropTargetManager = DropTargetManager;
 
-    // ============================================================
-    // Wire the account-exists gate once the stencil markup exists.
-    // The dropdown + session-controls live in file 4, above its
-    // structure-ready signal, so _pdcStructureReady === true means
-    // they are present. We poll for that flag (same cadence the
-    // rest of the file uses) rather than assuming load order, since
-    // this script can run before file 4 renders and the card
-    // re-renders on reloads. Guarded so only one poll is set up per
-    // script load; the gate itself is idempotent and card-scoped.
-    // ============================================================
-    if (window.isInGranteePortal && !window._pdcGatePollStarted) {
-        window._pdcGatePollStarted = true;
-        var pdcGatePoll = setInterval(function () {
-            if (!window._pdcStructureReady) return;
-            clearInterval(pdcGatePoll);
-            fluxxAPI.syncSessionControlsGate();
-        }, CONFIG.POLL_INTERVAL_MS);
-    }
+    // The account-exists gate (show/hide of the session controls off the
+    // native grant_request[pdc_account_exists] dropdown) is owned solely by
+    // the behavior file (block 5) via syncSessionControls(). The former
+    // block-2 gate here was removed: it resolved #pdc-session-controls by a
+    // literal id that Fluxx renames per card (only data-original-id is
+    // preserved), so it never matched and was dead code.
 </script>
