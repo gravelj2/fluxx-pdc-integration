@@ -704,6 +704,16 @@
         align-self: flex-start;
     }
 
+    /* Fluxx's portal CSS applies `.card a { font-weight: bold }` to every
+       anchor in a card, which re-bolds our step links/CTA (they are <a>s).
+       Scope by .pdc-journey so these selectors out-specify `.card a`
+       (0,2,1 > 0,1,1) and render at normal weight like the login buttons —
+       no !important needed. */
+    .pdc-journey a.pdc-step-cta,
+    .pdc-journey a.pdc-step-link {
+        font-weight: normal;
+    }
+
     .pdc-step-cta:hover {
         background-color: #f5f5f5;
         text-decoration: none;
