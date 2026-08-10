@@ -1,0 +1,119 @@
+<div
+    class="pdc-auth-container"
+    id="pdc-auth-container"
+    role="region"
+    aria-label="PDC Integration"
+>
+    <!-- ============================================================
+       READ-ONLY PDC JOURNEY
+
+       A view-only twin of "4. pdc-stencil-container.html". It renders
+       the same 4-step journey but drops every JS-driven element:
+       no account-gate dropdown, no login/logout controls, no launch
+       button, no explorer panel/drag-ghost/status, and no
+       _pdcStructureReady signal. The ONLY interactive element is the
+       native "Review and Manage Consent" modal link (Fluxx to-modal),
+       so this block needs NO custom JavaScript at all.
+
+       Deploy this WITHOUT blocks 2/3/5 and oauth-callback.html. It
+       reuses the CSS in "1. portal-style.html" unchanged. See
+       docs/deployment.md.
+       ============================================================ -->
+
+    <!-- Consent state, resolved server-side via Liquid. dyn_related
+       finds the PdcConsent record linked to this grant. has_consent
+       drives the consent step below. Kept on single lines so Fluxx's
+       save-time cleanup does not mangle the tags. -->
+    {% assign consentForm = 'MacModelTypeDynPdcConsent' | dyn_related: 'grant_or_request_id', model.id | last %} {% assign has_consent = false %}
+    {% if consentForm.consent_type == "Grant consent to share data with the PDC" %} {% assign has_consent = true %} {% endif %}
+
+    <!-- ============================================================
+       JOURNEY  (read-only)
+       Shows the whole path so a viewer sees where consent, login, and
+       the Data Explorer fit. Only consent has a real completion state
+       and a live action; steps 3 and 4 are inert "later" markers.
+       State is carried in text, not color alone (WCAG 1.4.1).
+       ============================================================ -->
+    <section class="pdc-journey">
+        <p class="pdc-phase-label">Contribute now</p>
+        <ol class="pdc-steps">
+            <li class="pdc-step pdc-step--available">
+                <span class="pdc-step-marker" aria-hidden="true">1</span>
+                <div class="pdc-step-body">
+                    <span class="pdc-step-title">Learn about the PDC</span>
+                    <span class="pdc-step-state">Start here</span>
+                    <a
+                        class="pdc-step-link"
+                        href="https://philanthropydatacommons.org/join-pdc/"
+                        target="_blank"
+                        rel="noopener"
+                        >What is the PDC?</a
+                    >
+                </div>
+            </li>
+
+            {% if has_consent %}
+            <li class="pdc-step pdc-step--complete">
+                <span class="pdc-step-marker" aria-hidden="true">&#10003;</span>
+                <div class="pdc-step-body">
+                    <span class="pdc-step-title"
+                        >Consent to share your data</span
+                    >
+                    <span class="pdc-step-state pdc-state-complete">Done</span>
+                    <a
+                        class="to-modal pdc-step-cta"
+                        href="/machine_models/{{ consentForm.id }}/edit"
+                        data-on-success="refreshCaller,close"
+                        rel="noopener"
+                        >Review and Manage Consent</a
+                    >
+                </div>
+            </li>
+            {% else %}
+            <li class="pdc-step pdc-step--action" aria-current="step">
+                <span class="pdc-step-marker" aria-hidden="true">2</span>
+                <div class="pdc-step-body">
+                    <span class="pdc-step-title"
+                        >Consent to share your data</span
+                    >
+                    {% if consentForm %}
+                    <a
+                        class="to-modal pdc-step-cta"
+                        href="/machine_models/{{ consentForm.id }}/edit"
+                        data-on-success="refreshCaller,close"
+                        rel="noopener"
+                        >Review and Manage Consent</a
+                    >
+                    {% endif %}
+                </div>
+            </li>
+            {% endif %}
+        </ol>
+
+        <p class="pdc-phase-label">Reuse later</p>
+        <ol class="pdc-steps" start="3">
+            <li class="pdc-step pdc-step--later" id="pdc-step-login">
+                <span class="pdc-step-marker" aria-hidden="true">3</span>
+                <div class="pdc-step-body">
+                    <span class="pdc-step-title">Log in to the PDC</span>
+                    <span class="pdc-step-state"
+                        >Available on your grant-request form once the PDC
+                        integration is enabled</span
+                    >
+                </div>
+            </li>
+
+            <li class="pdc-step pdc-step--later" id="pdc-step-explorer">
+                <span class="pdc-step-marker" aria-hidden="true">4</span>
+                <div class="pdc-step-body">
+                    <span class="pdc-step-title"
+                        >Use the Data Explorer to fill this application</span
+                    >
+                    <span class="pdc-step-state"
+                        >After you log in, if you have data to reuse</span
+                    >
+                </div>
+            </li>
+        </ol>
+    </section>
+</div>
