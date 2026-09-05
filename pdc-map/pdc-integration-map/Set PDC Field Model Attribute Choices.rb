@@ -1,108 +1,74 @@
 # Set PDC Field Model Attribute Choices
-# Validates and creates model attribute values for PDC base fields
+# Populates the pdc_field dropdown from the PDC base field list.
+# Fetch and pagination live in Get Base Fields from PDC.
 
-require 'net/http'
-require 'uri'
-require 'json'
+pdc_base_fields = model.dyn_invoke_for(:"Get Base Fields from PDC")
 
-# Get base fields from PDC API
-base_url = model.dyn_invoke_for(:"Get PDC Base URL")
-auth_token = model.dyn_invoke_for(:"Get Auth Token from PDC")
-
-# Fetch current base fields from PDC
-endpoint = "#{base_url}/baseFields"
-uri = URI.parse(endpoint)
-
-request = Net::HTTP::Get.new(uri)
-request['Authorization'] = "Bearer #{auth_token}"
-request['Accept'] = 'application/json'
-
-pdc_base_fields = []
-
-begin
-  response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|
-    http.request(request)
-  end
-
-  case response.code
-  when "200"
-    pdc_base_fields = JSON.parse(response.body)
-  when "401"
-    raise "Unauthorized: Invalid or expired auth token"
-  when "404"
-    raise "Base fields endpoint not found at #{endpoint}"
-  else
-    error_data = JSON.parse(response.body) rescue {}
-    error_message = error_data['message'] || response.body
-    raise "Failed to get base fields (#{response.code}): #{error_message}"
-  end
-
-rescue Net::OpenTimeout, Net::ReadTimeout
-  raise "Timeout connecting to PDC API"
-rescue SocketError, Errno::ECONNREFUSED
-  raise "Cannot connect to PDC API at #{uri.hostname}"
-rescue JSON::ParserError => e
-  raise "Invalid JSON response: #{e.message}"
+if pdc_base_fields.nil? || pdc_base_fields.empty?
+  raise "No base fields returned from PDC. Refusing to run against an empty list."
 end
 
-# Find the model attribute for PDC fields
 pdc_field_attribute = ModelAttribute.find_by(
   model_type: "MacModelTypeDynPdcMappedField1",
-  name: "pdc_field"
+  name:       "pdc_field"
 )
 
 if pdc_field_attribute.nil?
-  raise "PDC field model attribute not found. Cannot create field choices."
+  raise "pdc_field attribute not found on MacModelTypeDynPdcMappedField1"
 end
 
-# Track results
 created_count = 0
 updated_count = 0
 skipped_count = 0
-errors = []
+errors        = []
 
-# Process each base field
+# One query instead of one per field
+existing = {}
+ModelAttributeValue.where(model_attribute_id: pdc_field_attribute.id).each do |mav|
+  existing[mav.value] = mav
+end
+
 pdc_base_fields.each do |field|
   short_code = field['shortCode']
-  label = field['label']
+  label      = field['label']
 
-  # Skip if essential data is missing
-  if short_code.blank? || label.blank?
-    errors << "Skipping field with missing shortCode or label"
+  if short_code.blank?
+    errors << "Skipping field with no shortCode: #{field.inspect[0, 120]}"
     skipped_count += 1
     next
   end
 
-  # Check if value already exists
-  existing_value = ModelAttributeValue.find_by(
-    model_attribute_id: pdc_field_attribute.id,
-    value: short_code
-  )
+  # Fall back to the short code so a missing label does not drop the field
+  description = label.presence || short_code
 
-  if existing_value
-    # Update description if changed (using label as description)
-    if existing_value.description != label
-      existing_value.update(description: label)
+  current = existing[short_code]
+
+  if current
+    if current.description != description
+      current.update(description: description)
       updated_count += 1
     else
       skipped_count += 1
     end
   else
-    # Create new value with label as description
-    ModelAttributeValue.create!(
-      model_attribute_id: pdc_field_attribute.id,
-      value: short_code,
-      description: label
-    )
-    created_count += 1
+    begin
+      ModelAttributeValue.create!(
+        model_attribute_id: pdc_field_attribute.id,
+        value:              short_code,
+        description:        description
+      )
+      created_count += 1
+    rescue => e
+      errors << "Failed to create #{short_code}: #{e.message}"
+    end
   end
 end
 
-# Return summary
 {
-  total_fields: pdc_base_fields.length,
-  created: created_count,
-  updated: updated_count,
-  skipped: skipped_count,
-  errors: errors
+  total_fields:  pdc_base_fields.length,
+  created:       created_count,
+  updated:       updated_count,
+  skipped:       skipped_count,
+  final_count:   ModelAttributeValue.where(model_attribute_id: pdc_field_attribute.id).count,
+  errors:        errors
 }

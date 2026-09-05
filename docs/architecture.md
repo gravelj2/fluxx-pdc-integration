@@ -51,8 +51,8 @@ PDC Consent model
 PDC Integration Map model — foundations used by nearly everything:
   Get PDC Base URL          (env detection via ClientConfiguration id 47)
   Get Auth Token from PDC   (client-credentials token, cached on the record)
-    ├─► Get PDC Test Client Secret / Get PDC Prod Client Secret
-    └─► (client IDs currently inline / in Get PDC * Client ID methods)
+    ├─► Get PDC Client Secret
+    └─► (client IDs currently inline / in Get PDC Client ID methods)
   Setup/sync methods:
     Set Opportunity Dropdown Values ──► Get Opportunities from PDC
     Set Application Dropdown Values ──► Get Applications from PDC

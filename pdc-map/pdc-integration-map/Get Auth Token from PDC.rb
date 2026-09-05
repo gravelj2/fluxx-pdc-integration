@@ -12,22 +12,9 @@ if token_data && token_data["access_token"] &&
 else
   # Determine environment
   base_url = model.dyn_invoke_for(:"Get PDC Base URL")
-
-  client_secret = if base_url.include?("test")
-    model.dyn_invoke_for(:"Get PDC Test Client Secret")
-  else
-    model.dyn_invoke_for(:"Get PDC Prod Client Secret")
-  end
-
-  # Construct auth URL properly
-  # PDC uses same domain for auth and API, just different paths
-  auth_url = if base_url.include?("test")
-    "https://auth.test.philanthropydatacommons.org/realms/pdc/protocol/openid-connect/token"
-  elsif base_url.include?("api.philanthropy")
-    "https://auth.philanthropydatacommons.org/realms/pdc/protocol/openid-connect/token"
-  else
-    raise "Unknown PDC environment: #{base_url}"
-  end
+  client_id = model.dyn_invoke_for(:"Get PDC Client ID")
+  client_secret = model.dyn_invoke_for(:"Get PDC Client Secret")
+  auth_url = "https://auth.philanthropydatacommons.org/realms/pdc/protocol/openid-connect/token"
 
   # Make token request
   uri = URI.parse(auth_url)

@@ -2,7 +2,7 @@
 # Model: GrantRequest
 #
 # Purpose:
-#   Queries for the first MacModelTypeDynPDCApplicationForm1 record,
+#   Queries for the first MacModelTypeDynPdcApplicationForm1 record,
 #   invokes "Get Field Mapping JSON for PDC Data Explorer" on it,
 #   and returns the Base64-encoded JSON result.
 #

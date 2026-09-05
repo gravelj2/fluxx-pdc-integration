@@ -21,13 +21,13 @@ if opportunity_id.to_s !~ /^\d+$/
     model_type: model.class.name,
     name: "opportunity"
   )
-  
+
   if opportunity_attribute
     attr_value = ModelAttributeValue.find_by(
       model_attribute_id: opportunity_attribute.id,
       description: opportunity_id
     )
-    
+
     if attr_value && attr_value.name.present?
       opportunity_id = attr_value.name
     else
@@ -89,12 +89,12 @@ mappings.each_with_index do |mapping, index|
         pdc_field_code = direct_value.value if direct_value
       end
     end
-    
+
     if pdc_field_code.blank?
       errors << "Mapping #{index + 1}: No PDC field found"
       next
     end
-    
+
     # Get label (instructions field)
     label = if mapping.respond_to?(:pdc_application_field_instructions)
       mapping.pdc_application_field_instructions
@@ -107,29 +107,30 @@ mappings.each_with_index do |mapping, index|
         "Field #{index + 1}"
       end
     end
-    
+
     # Get position
     position = if mapping.respond_to?(:pdc_field_position)
       mapping.pdc_field_position.to_i
     else
       index + 1  # Default to sequential ordering
     end
-    
+
     # Build field object
     field = {
       baseFieldShortCode: pdc_field_code,
       position: position,
-      label: label
+      label: label,
+      inputType: nil
     }
-    
+
     # Add instructions if different from label
-    if mapping.respond_to?(:pdc_application_field_instructions) && 
+    if mapping.respond_to?(:pdc_application_field_instructions) &&
        mapping.pdc_application_field_instructions.present?
       field[:instructions] = mapping.pdc_application_field_instructions
     end
-    
+
     fields << field
-    
+
   rescue => e
     errors << "Error processing mapping #{index + 1}: #{e.message}"
   end
@@ -151,7 +152,8 @@ auth_token = model.dyn_invoke_for(:"Get Auth Token from PDC")
 # Build request body
 request_body = {
   opportunityId: opportunity_id.to_i,
-  fields: fields
+  fields: fields,
+  name: model.name
 }
 
 # Create POST request
@@ -168,17 +170,17 @@ begin
   response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|
     http.request(request)
   end
-  
+
   case response.code
   when "201"
     # Success - parse response
     app_form_data = JSON.parse(response.body)
-    
+
     # Store PDC application form ID if model supports it
     if model.respond_to?(:pdc_application_form_id=)
       model.update_attribute(:pdc_application_form_id, app_form_data['id'])
     end
-    
+
     # Return with any mapping errors for visibility
     result = {
       application_form: app_form_data,
@@ -186,9 +188,9 @@ begin
       total_mappings: mappings.length
     }
     result[:mapping_errors] = errors if errors.any?
-    
+
     result
-    
+
   when "401"
     raise "Unauthorized: Invalid or expired auth token"
   when "404"
@@ -204,7 +206,7 @@ begin
     error_message = error_data['message'] || response.body
     raise "Failed to create application form (#{response.code}): #{error_message}"
   end
-  
+
 rescue Net::OpenTimeout, Net::ReadTimeout
   raise "Timeout connecting to PDC API"
 rescue SocketError, Errno::ECONNREFUSED

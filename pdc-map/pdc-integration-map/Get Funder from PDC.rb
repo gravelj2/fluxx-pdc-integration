@@ -11,7 +11,7 @@ require 'json'
 funder_short_code = nil
 
 if model.respond_to?(:funder_short_code) && model.funder_short_code.present?
-    funder_short_code = model.fundefunder_short_code
+    funder_short_code = model.funder_short_code
 else
   raise "Funder short code is required to create an opportunity"
 end
@@ -33,7 +33,7 @@ begin
   response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|
     http.request(request)
   end
-  
+
   case response.code
   when "200"
     # Funder exists in PDC
@@ -49,7 +49,7 @@ begin
     error_message = error_data['message'] || response.body
     raise "PDC API error (#{response.code}): #{error_message}"
   end
-  
+
 rescue Net::OpenTimeout, Net::ReadTimeout
   raise "Timeout connecting to PDC API"
 rescue SocketError, Errno::ECONNREFUSED

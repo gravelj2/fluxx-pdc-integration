@@ -62,8 +62,8 @@ between the two components.
   method/hook name; methods call each other by name via
   `model.dyn_invoke_for(:"Method Name")`. Renaming a file here without renaming
   the method in Fluxx (and every call site) breaks the integration.
-- **Secrets never live in this repo.** `Get PDC Test Client Secret.rb` and
-  `Get PDC Prod Client Secret.rb` are placeholders returning `"Not Configured"`.
+- **Secrets never live in this repo.** `Get PDC Client Secret.rb` and
+  `Get PDC Client Secret.rb` are placeholders returning `"Not Configured"`.
   Real secret values are entered only in Fluxx; the future deployment script
   must inject them from a secret store, never from git.
 - `docs/architecture.md` has the method dependency map; `docs/deployment.md`
