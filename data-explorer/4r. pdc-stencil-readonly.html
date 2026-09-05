@@ -20,12 +20,45 @@
        docs/deployment.md.
        ============================================================ -->
 
-    <!-- Consent state, resolved server-side via Liquid. dyn_related
-       finds the PdcConsent record linked to this grant. has_consent
-       drives the consent step below. Kept on single lines so Fluxx's
-       save-time cleanup does not mangle the tags. -->
-    {% assign consentForm = 'MacModelTypeDynPdcConsent' | dyn_related: 'grant_or_request_id', model.id | last %} {% assign has_consent = false %}
-    {% if consentForm.consent_type == "Grant consent to share data with the PDC" %} {% assign has_consent = true %} {% endif %}
+    <!-- Consent state, resolved server-side via Liquid. Lives here with
+       the journey so the on-ramp owns the state it displays.
+
+       dyn_related returns a COLLECTION, not a record, and its empty
+       form is NOT reliably Liquid-falsy: piping an empty/nil relation
+       through `last` yields a value that tests truthy (only nil and
+       false are falsy in Liquid; "" is truthy). So the original bare
+       truthiness guard on the record always passed, emitting a link to
+       /machine_models//edit. The load-bearing guards are therefore
+       consentFormCount > 0 (checked BEFORE `last`, the same pattern as
+       Show Mapped Fields.html) and consentFormId != blank (`blank`
+       matches nil AND empty string).
+
+       Two INDEPENDENT booleans come out of this:
+         has_consent_form -> does a real record exist? Gates the CTA.
+                             Grants created before 07/01/2026 have no
+                             record at all (see "PDC After Save -
+                             Create Consent If Empty").
+         has_consent      -> did they affirmatively grant? Picks which
+                             branch shows. Both branches keep the CTA.
+
+       Granted is tested as "non-blank AND not declined", NOT as a match
+       on "grant". This mirrors "PDC Send Proposal to PDC" and fails in
+       the safe direction: a reworded affirmative choice ("Yes, share my
+       data") still reads as granted, and submission re-checks anyway.
+       `contains "ecline"` drops the leading letter on purpose to match
+       either case -- it is the Liquid equivalent of that method's
+       /[Dd]ecline/ regex, not a typo. Note blank (not yet answered) and
+       declined are distinct states that both land in the action branch.
+
+       KEEP EACH TAG ON A SINGLE LINE. Fluxx's save-time cleanup mangles
+       wrapped Liquid tags and blanks the whole block.
+
+       Keep this block and both consent branches IDENTICAL to the twin
+       stencil (4. pdc-stencil-container.html). They are synced by hand. -->
+    {% assign consentForms = 'MacModelTypeDynPdcConsent' | dyn_related: 'grant_or_request_id', model.id %} {% assign consentFormCount = consentForms.size %} {% assign has_consent_form = false %} {% assign has_consent = false %}
+    {% if consentFormCount > 0 %} {% assign consentForm = consentForms | last %} {% assign consentFormId = consentForm.id %} {% if consentFormId != blank %} {% assign has_consent_form = true %} {% endif %} {% endif %}
+    {% if has_consent_form and consentForm.consent_type != blank %} {% assign has_consent = true %} {% endif %}
+    {% if consentForm.consent_type contains "ecline" %} {% assign has_consent = false %} {% endif %}
 
     <!-- ============================================================
        JOURNEY  (read-only)
@@ -76,13 +109,20 @@
                     <span class="pdc-step-title"
                         >Consent to share your data</span
                     >
-                    {% if consentForm %}
+                    {% if has_consent_form %}
+                    <span class="pdc-step-state pdc-state-action"
+                        >Action needed</span
+                    >
                     <a
                         class="to-modal pdc-step-cta"
                         href="/machine_models/{{ consentForm.id }}/edit"
                         data-on-success="refreshCaller,close"
                         rel="noopener"
                         >Review and Manage Consent</a
+                    >
+                    {% else %}
+                    <span class="pdc-step-state"
+                        >Not available on this grant</span
                     >
                     {% endif %}
                 </div>

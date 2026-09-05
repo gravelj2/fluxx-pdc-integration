@@ -3,13 +3,13 @@
 related_consent_forms = []
 grants_on_org = GrantRequest.where(program_organization_id: model.program_organization.id).sort_by { | request | request.created_at }.reverse
 
-grants_on_org.each do | request | 
+grants_on_org.each do | request |
     related_consent_forms << request.dyn_invoke_for("PDC Safe Consent Form Lookup")
 end
 
 latest_consent = related_consent_forms.compact.first
-if latest_consent != nil 
-    latest_consent.last.consent_type
+if !latest_consent.blank?
+    latest_consent.first.consent_type
 else
     nil
 end
