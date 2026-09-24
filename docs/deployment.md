@@ -87,8 +87,17 @@ choice to drop that word would. Keep "decline" in the negative option's label.
       URL as the redirect URI with PDC.
 - [ ] `Get PDC Base URL.rb`: confirm `ClientConfiguration` id 47 exists in the
       target instance (environment detection depends on it).
-- [ ] `CurrentConsentLanguage.rb`: point the Q&A link at the right Fluxx
-      instance (currently preprod).
+- [ ] `CurrentConsentLanguage.rb`: the Q&A link now uses a relative URL
+      (`/show/generic_templates/44210`), so it resolves against whatever
+      Fluxx instance actually serves the page -- the old hardcoded-preprod-
+      domain bug is fixed. What's NOT yet verified: whether `44210` itself
+      -- a `Stencil`/`GenericTemplate` id -- is the same id in every
+      environment. Confirmed true across MacArthur's current environments
+      as of 2026-09-24, but ids like this are environment-specific in
+      general (see the OAuth-callback Generic Template discovery in
+      docs/roadmap.md, where the id genuinely does vary per instance). A new
+      deployer must confirm this id still resolves to the intended Q&A page
+      before going live, and re-derive it if it doesn't.
 
 ## Notes for the future deployment script
 

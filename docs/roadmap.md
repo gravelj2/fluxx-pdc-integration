@@ -55,6 +55,18 @@ Within the read-only comparison work, the sequencing is:
   [stencil-import-export-api.md](stencil-import-export-api.md)) -- is
   planned but not built. Comparison (read-only) ships first; injection
   (write) comes after.
+- **Hardcoded Generic Template/stencil ids as a class of problem.** Two
+  known instances so far: the oauth-callback stencil id (resolved via the
+  UserProfile -> DashboardTemplate -> stencil discovery chain in
+  `generic_templates.py`, since that id is genuinely instance-specific) and
+  `CurrentConsentLanguage.rb`'s Q&A link, `/show/generic_templates/44210`
+  (confirmed the same id across MacArthur's environments as of 2026-09-24,
+  but not guaranteed to stay that way, and not portable to a different
+  Fluxx org at all). A future version of the inventory/comparison tool
+  should treat "a Ruby/HTML body contains a hardcoded `generic_templates/N`
+  reference" as its own flagged category -- surfaced for a new deployer to
+  confirm or re-derive, the same way `deployment.md`'s environment checklist
+  already asks a human to confirm `ClientConfiguration` id 47.
 - **Bootstrapping the first Integration Map.** Creating a brand-new `PDC
   Integration Map` record from scratch isn't handled -- the tool assumes at
   least one already exists to compare against.
