@@ -8,6 +8,7 @@ if pdc_base_fields.nil? || pdc_base_fields.empty?
   raise "No base fields returned from PDC. Refusing to run against an empty list."
 end
 
+# Note the casing: the attribute in the database is MacModelTypeDynPdcMappedField1.
 pdc_field_attribute = ModelAttribute.find_by(
   model_type: "MacModelTypeDynPdcMappedField1",
   name:       "pdc_field"
