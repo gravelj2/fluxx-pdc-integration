@@ -56,7 +56,7 @@
   
   <p>The PDC is a collaborative, community-driven data infrastructure effort designed to strengthen and simplify how information flows across the philanthropic sector. Its tools and services help mission-driven organizations reduce duplicative reporting, improve visibility with potential funders, and participate more easily in collective funding efforts by using data more effectively to advance shared goals.</p>
   
-  <p>Your consent allows the PDC and its participating organizations (including the Foundation) to use this information in furtherance of PDC projects, platforms and initiatives, now and in the future, in accordance with the PDC's governing data use agreement (DUA). If you have questions regarding this consent, please consult <a href="https://macfound-dev.preprod.fluxxlabs.com/show/generic_templates/44210" target="_blank">this Q&A</a> or contact <a href="mailto:legal@macfound.org">legal@macfound.org</a>.</p>
+  <p>Your consent allows the PDC and its participating organizations (including the Foundation) to use this information in furtherance of PDC projects, platforms and initiatives, now and in the future, in accordance with the PDC's governing data use agreement (DUA). If you have questions regarding this consent, please consult <a href="/show/generic_templates/44210" target="_blank">this Q&A</a> or contact <a href="mailto:legal@macfound.org">legal@macfound.org</a>.</p>
 </body>
 </html>
 CONSENTLANGUAGE
