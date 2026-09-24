@@ -55,6 +55,8 @@ class FluxxClient:
                 body = resp.read()
         except urllib.error.HTTPError as exc:
             raise FluxxApiError(f"{method} {path} -> HTTP {exc.code}: {exc.read()[:500]!r}") from exc
+        except urllib.error.URLError as exc:
+            raise FluxxApiError(f"{method} {path} -> could not reach {self.base_url}: {exc.reason}") from exc
 
         data = json.loads(body)
         if isinstance(data, dict) and "error" in data:
