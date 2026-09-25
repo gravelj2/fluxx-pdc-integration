@@ -21,14 +21,14 @@ import argparse
 import getpass
 import sys
 
-from .compare import ComparisonResult, Status, compare_owned, compare_shared
+from .compare import ComparisonResult, Status, compare_owned, compare_shared, compare_whole
 from .fluxx_client import FluxxApiError, FluxxClient
-from .generic_templates import find_grantee_generic_templates
+from .generic_templates import fetch_oauth_callback_element_text, find_grantee_generic_templates
 from .git_source import DEFAULT_REF, DEFAULT_REMOTE, GitSource, GitSourceError, WorkingTreeSource
 from .hooks import find_grant_request_pdc_hooks
 from .manifest import TRACKED_MODEL_TYPES
 from .methods import fetch_body, find_tracked_methods
-from .paths import hook_path, method_path
+from .paths import OAUTH_CALLBACK_PATH, hook_path, method_path
 from .roles import list_roles
 from .stencils import find_tracked_stencils, report_missing
 from .themes import find_theme_pdc_status
@@ -166,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         results = _compare_methods(client, methods_by_model, source)
         results += _compare_hooks(hooks, source)
+        results += _compare_oauth_callback(client, grantee_templates, source)
     except GitSourceError as exc:
         print(f"Git source error: {exc}", file=sys.stderr)
         return 1
@@ -206,6 +207,27 @@ def _compare_hooks(hooks: list, source: GitSource | WorkingTreeSource) -> list[C
             continue
         repo_body = source.read_file(repo_path)
         results.append(compare_shared(hook.state_name, repo_path, hook.after_enter, repo_body))
+    return results
+
+
+def _compare_oauth_callback(
+    client: FluxxClient, grantee_templates: list, source: GitSource | WorkingTreeSource
+) -> list[ComparisonResult]:
+    """Compares oauth-callback.html against whichever grantee-profile
+    stencil(s) actually resolved to a real stencil id with oauth content --
+    see generic_templates.py. A profile with no dashboard template, or a
+    dashboard whose first card isn't a GenericTemplate, contributes nothing
+    to compare (that's a discovery-chain gap already surfaced in the
+    inventory section above, not a content mismatch).
+    """
+    results: list[ComparisonResult] = []
+    repo_body = source.read_file(OAUTH_CALLBACK_PATH)
+    for template in grantee_templates:
+        if template.stencil_id is None or not template.contains_oauth:
+            continue
+        label = f"oauth-callback ({template.profile_name} profile, stencil {template.stencil_id})"
+        fluxx_body = fetch_oauth_callback_element_text(client, template.stencil_id)
+        results.append(compare_whole(label, OAUTH_CALLBACK_PATH, fluxx_body, repo_body))
     return results
 
 
