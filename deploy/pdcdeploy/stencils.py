@@ -43,6 +43,22 @@ class StencilRef:
     updated_at: str
 
 
+def choose_primary_stencil(candidates: list[dict]) -> dict | None:
+    """Among stencils sharing a model_type (or, for a multi-theme model
+    type, a model_theme_id), pick the form/list/show one -- each also has a
+    separate "Filter" stencil (form_type=["filter"]) that deployment.md
+    doesn't track. Ties (more than one form/list/show stencil, seen for a
+    handful of legacy GrantRequest themes on TRN) break by most-recently-
+    updated, since that's the one likeliest to be the live layout.
+    """
+    primary = [c for c in candidates if "form" in (c.get("form_type") or "")]
+    if not primary:
+        return None
+    if len(primary) > 1:
+        primary.sort(key=lambda c: c["updated_at"], reverse=True)
+    return primary[0]
+
+
 def find_tracked_stencils(client: FluxxClient) -> dict[str, StencilRef]:
     """Return the primary (form/list/show) stencil for each tracked model type.
 
@@ -58,13 +74,9 @@ def find_tracked_stencils(client: FluxxClient) -> dict[str, StencilRef]:
 
     result: dict[str, StencilRef] = {}
     for model_type, label in TRACKED_MODEL_TYPES.items():
-        candidates = by_model_type.get(model_type, [])
-        primary = [c for c in candidates if "form" in (c.get("form_type") or "")]
-        if not primary:
+        chosen = choose_primary_stencil(by_model_type.get(model_type, []))
+        if chosen is None:
             continue
-        if len(primary) > 1:
-            primary.sort(key=lambda c: c["updated_at"], reverse=True)
-        chosen = primary[0]
         result[model_type] = StencilRef(
             model_type=model_type,
             label=label,

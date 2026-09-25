@@ -116,19 +116,32 @@ def compare_shared(label: str, repo_path: str, fluxx_full_body: str | None, repo
 
 
 def find_stencil_element_text(elements: list[dict], element_id: str) -> str | None:
-    """Locate a PDC-owned element within a Stencil.json `elements` list by
+    """Locate a PDC-owned element within a Stencil.json `elements` tree by
     its `<!-- PDC:ELEMENT id=... -->` marker (see manifest.py) rather than by
     `uid` (per-instance, not portable) or by content substring (ambiguous
     once more than one PDC element exists in the same stencil). Returns the
     element's raw `config.text` (still HTML-entity-encoded as Fluxx stores
     it -- callers decode with `html.unescape` before diffing against a repo
     file, same as generic_templates.py's oauth-callback handling).
+
+    Recurses into `group` elements' nested `elements` -- confirmed on TRN
+    (2026-09-25): GrantRequest's form stencils keep all 7 PDC blocks (the 6
+    Data Explorer files plus the readonly stencil-container variant) nested
+    one level inside a "Contribute to the Philanthropy Data Commons (PDC)"
+    group, unlike the flat GenericTemplate stencil this function was first
+    written against. A top-level-only search would silently return None for
+    every GrantRequest block.
     """
     marker = f"{STENCIL_ELEMENT_MARKER_PREFIX}{element_id} -->"
     for element in elements:
         text = (element.get("config") or {}).get("text")
         if text and marker in text:
             return text
+        nested = element.get("elements")
+        if nested:
+            found = find_stencil_element_text(nested, element_id)
+            if found is not None:
+                return found
     return None
 
 

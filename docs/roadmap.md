@@ -167,14 +167,22 @@ the deployed artifact would just create a second, weaker source of truth
 that can silently lie. Keep the marker doing exactly one job: stable
 identity, nothing else.
 
-**Still not built:** no markers have actually been added to the 6 Data
-Explorer block files or oauth-callback.html yet, and no comparison logic
-exists for either GrantRequest stencil (45712, 26253) or the GenericTemplate
-stencil (2686) beyond the plain-text comparison for oauth-callback.html
-implemented in this phase (see `compare.py`/`stencils.py`). Building the
-actual marker-based extraction (locate element by marker inside a
-`Stencil.json` element array, diff its content the same way
-`compare_shared` does for hook text) is the next piece of real work here.
+**Done (2026-09-25):** all 6 Data Explorer block files (1-5 plus
+oauth-callback.html; block 0 is optional and currently absent from the
+repo) now carry their marker as the first line, and
+`find_stencil_element_text` (compare.py) locates an element by marker
+rather than by the earlier "oauth" substring hint. Confirmed the marker
+comparison is honest about deploy state: TRN's live stencil doesn't have
+the marker yet, so `oauth-callback` correctly reports `MISSING IN FLUXX`
+(not a false match) until someone pastes the updated content into Fluxx.
+
+**Still not built:** no comparison logic exists yet for either GrantRequest
+form stencil (45712, 26253) -- the harder case, since PDC's 6 blocks sit
+alongside many unrelated elements per stencil, across 2 separate stencils
+(one per PDC-bearing theme). Building the actual per-block extraction there
+(locate each of the 6 elements by its marker inside a `Stencil.json`
+element array, diff each one the same way `compare_shared` does for hook
+text) is the next piece of real work here.
 
 ## Write operations (future)
 
