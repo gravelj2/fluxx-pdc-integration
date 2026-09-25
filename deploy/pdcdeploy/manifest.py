@@ -53,6 +53,16 @@ FULLY_OWNED_MODEL_TYPES: frozenset[str] = frozenset(TRACKED_MODEL_TYPES) | froze
 MARKER_START = "###PDC_CODE###"
 MARKER_END = "###END_PDC_CODE###"
 
+# Identity marker for a single PDC-owned element inside a Stencil.json
+# element tree we don't fully own (any GrantRequest form stencil, and the
+# GenericTemplate stencil holding oauth-callback.html). Deliberately just an
+# id, no version/hash -- see docs/roadmap.md "Stencil element identification"
+# for why a `uid` (generated per-instance, not portable across a fresh
+# deploy) and a version-in-marker (drifts the moment someone hand-edits in
+# the Fluxx GUI) were both rejected. Proven to survive Fluxx's stencil
+# storage untouched via a live round-trip test against TRN (2026-09-25).
+STENCIL_ELEMENT_MARKER_PREFIX = "<!-- PDC:ELEMENT id="
+
 # Fluxx model_type -> the GrantRequest state(s) confirmed to carry a PDC
 # invocation in MachineState.unsafe_after_enter (NOT ModelTheme's
 # before_new/after_create -- see docs/roadmap.md). This is TRN-specific
