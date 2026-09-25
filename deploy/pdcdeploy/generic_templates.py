@@ -33,11 +33,12 @@ import json
 import re
 from dataclasses import dataclass
 
+from .compare import find_stencil_element_text
 from .fluxx_client import FluxxClient
 
 GRANTEE_CATEGORY = "grantee"
 GENERIC_TEMPLATE_URL_RE = re.compile(r"/generic_templates/(\d+)")
-OAUTH_HINT = "oauth"
+OAUTH_CALLBACK_ELEMENT_ID = "oauth-callback"
 
 
 @dataclass(frozen=True)
@@ -126,7 +127,11 @@ def find_grantee_generic_templates(client: FluxxClient) -> list[GranteeProfileTe
 
 def fetch_oauth_callback_element_text(client: FluxxClient, stencil_id: int) -> str | None:
     """The decoded content of the oauth-callback `text` element inside a
-    GenericTemplate stencil, or None if no element in it mentions oauth.
+    GenericTemplate stencil, located by its `<!-- PDC:ELEMENT
+    id=oauth-callback -->` marker (see manifest.py / compare.py) -- not by
+    `uid` (per-instance, not portable to a fresh deploy) or by an "oauth"
+    content substring (ambiguous if more than one PDC element ever lands in
+    the same stencil). None if no element carries the marker.
 
     Fluxx's stencil editor HTML-entity-encodes element text on save (`&&`
     becomes `&amp;&amp;`, etc.) -- confirmed against TRN (2026-09-25):
@@ -134,18 +139,8 @@ def fetch_oauth_callback_element_text(client: FluxxClient, stencil_id: int) -> s
     oauth-callback.html except for genuine content differences. This
     function returns the unescaped form so callers can diff it directly
     against a repo file's raw text.
-
-    Locates the element the same way the discovery chain does today -- by
-    an "oauth" substring in the element's own content, since this stencil
-    (unlike the future GrantRequest case in docs/roadmap.md) currently has
-    no PDC:ELEMENT marker of its own. Returns the FIRST element containing
-    the substring; if more than one element could plausibly match, that's a
-    real ambiguity a marker would resolve -- not handled here yet.
     """
     stencil = client.fetch("stencil", stencil_id, cols=["id", "json"])
     elements = json.loads(stencil.get("json") or "{}").get("elements", [])
-    for element in elements:
-        text = (element.get("config") or {}).get("text")
-        if text and OAUTH_HINT in text.lower():
-            return html.unescape(text)
-    return None
+    text = find_stencil_element_text(elements, OAUTH_CALLBACK_ELEMENT_ID)
+    return html.unescape(text) if text is not None else None

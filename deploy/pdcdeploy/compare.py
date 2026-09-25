@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from .manifest import MARKER_END, MARKER_START, SECRET_METHOD_NAMES
+from .manifest import MARKER_END, MARKER_START, SECRET_METHOD_NAMES, STENCIL_ELEMENT_MARKER_PREFIX
 
 
 class Status(Enum):
@@ -113,6 +113,23 @@ def compare_shared(label: str, repo_path: str, fluxx_full_body: str | None, repo
     return ComparisonResult(
         label, repo_path, Status.DIFFERS, fluxx_content=fluxx_section, repo_content=repo_section
     )
+
+
+def find_stencil_element_text(elements: list[dict], element_id: str) -> str | None:
+    """Locate a PDC-owned element within a Stencil.json `elements` list by
+    its `<!-- PDC:ELEMENT id=... -->` marker (see manifest.py) rather than by
+    `uid` (per-instance, not portable) or by content substring (ambiguous
+    once more than one PDC element exists in the same stencil). Returns the
+    element's raw `config.text` (still HTML-entity-encoded as Fluxx stores
+    it -- callers decode with `html.unescape` before diffing against a repo
+    file, same as generic_templates.py's oauth-callback handling).
+    """
+    marker = f"{STENCIL_ELEMENT_MARKER_PREFIX}{element_id} -->"
+    for element in elements:
+        text = (element.get("config") or {}).get("text")
+        if text and marker in text:
+            return text
+    return None
 
 
 def _normalize(text: str) -> str:
