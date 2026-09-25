@@ -34,3 +34,6 @@ def hook_path(state_name: str) -> str:
     if state_name not in known:
         raise KeyError(f"no known repo path for a PDC hook on GrantRequest state {state_name!r}")
     return known[state_name]
+
+
+OAUTH_CALLBACK_PATH = "data-explorer/oauth-callback.html"

@@ -61,7 +61,16 @@ def compare_owned(
     """Whole-body comparison for a fully-owned method/stencil."""
     if method_name in SECRET_METHOD_NAMES:
         return ComparisonResult(label, repo_path, Status.SKIPPED_SECRET)
+    return compare_whole(label, repo_path, fluxx_body, repo_body)
 
+
+def compare_whole(label: str, repo_path: str, fluxx_body: str | None, repo_body: str | None) -> ComparisonResult:
+    """Whole-content comparison with no secret check -- for a fully-owned
+    element found by something other than an exact method name (e.g. the
+    oauth-callback element inside a GenericTemplate stencil, located by
+    substring rather than by a name lookup). `compare_owned` delegates here
+    after its secret check.
+    """
     if fluxx_body is None and repo_body is None:
         # Neither side has it -- not a real object, nothing to report.
         return ComparisonResult(label, repo_path, Status.MISSING_IN_FLUXX)

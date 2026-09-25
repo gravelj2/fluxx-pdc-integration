@@ -28,6 +28,7 @@ see `GranteeProfileTemplate.ambiguous`.
 
 from __future__ import annotations
 
+import html
 import json
 import re
 from dataclasses import dataclass
@@ -36,6 +37,7 @@ from .fluxx_client import FluxxClient
 
 GRANTEE_CATEGORY = "grantee"
 GENERIC_TEMPLATE_URL_RE = re.compile(r"/generic_templates/(\d+)")
+OAUTH_HINT = "oauth"
 
 
 @dataclass(frozen=True)
@@ -120,3 +122,30 @@ def find_grantee_generic_templates(client: FluxxClient) -> list[GranteeProfileTe
             )
         )
     return results
+
+
+def fetch_oauth_callback_element_text(client: FluxxClient, stencil_id: int) -> str | None:
+    """The decoded content of the oauth-callback `text` element inside a
+    GenericTemplate stencil, or None if no element in it mentions oauth.
+
+    Fluxx's stencil editor HTML-entity-encodes element text on save (`&&`
+    becomes `&amp;&amp;`, etc.) -- confirmed against TRN (2026-09-25):
+    `html.unescape()` fully reconciles the stored text with the repo's raw
+    oauth-callback.html except for genuine content differences. This
+    function returns the unescaped form so callers can diff it directly
+    against a repo file's raw text.
+
+    Locates the element the same way the discovery chain does today -- by
+    an "oauth" substring in the element's own content, since this stencil
+    (unlike the future GrantRequest case in docs/roadmap.md) currently has
+    no PDC:ELEMENT marker of its own. Returns the FIRST element containing
+    the substring; if more than one element could plausibly match, that's a
+    real ambiguity a marker would resolve -- not handled here yet.
+    """
+    stencil = client.fetch("stencil", stencil_id, cols=["id", "json"])
+    elements = json.loads(stencil.get("json") or "{}").get("elements", [])
+    for element in elements:
+        text = (element.get("config") or {}).get("text")
+        if text and OAUTH_HINT in text.lower():
+            return html.unescape(text)
+    return None

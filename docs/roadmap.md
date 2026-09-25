@@ -122,6 +122,60 @@ Implications for future write/injection work:
   themes needs the same "which theme(s), and who else shares what I'm
   about to touch" question before a write.
 
+## Stencil element identification (decided; not yet built)
+
+Stencils are the other shared-surface case (alongside the `after_enter`
+hook): `GrantRequest` has 51 stencils on TRN, one per theme, and only 2
+matter for PDC (theme 2239 "Grant Request" -> stencil 45712; theme 13948
+"General Operations" -> stencil 26253, matching the two live-PDC themes from
+"Theme selection" above). Each of those stencils holds many elements we
+don't own -- the Data Explorer is 6 separate blocks (per
+[deployment.md](deployment.md)) that would need to be located as 6 separate
+elements inside each stencil, without disturbing anything else there.
+
+**Why not use the element's `uid`:** every element has a `uid`, but it's
+generated per-instance at creation time -- confirmed on TRN (2026-09-25):
+the GenericTemplate stencil holding oauth-callback.html has a `uid` that is
+clearly random per-deployment, not something the repo could predict or pin
+ahead of a fresh install into a different Fluxx org. A `uid`-based lookup
+only works after the fact, on the instance that created it -- useless for
+"is this the right element" across organizations, and fragile even within
+one org if an element is ever deleted and recreated (new `uid`, same
+intent).
+
+**Decision: an HTML-comment marker embedded in the element's own content**,
+e.g. `<!-- PDC:ELEMENT id=oauth-callback -->` as the first line, with no
+version/hash in the marker -- just a stable id. Proven live against TRN
+(2026-09-25): wrote a modified copy of stencil 2686 (the GenericTemplate
+holding oauth-callback.html) with the marker prepended to the target
+element's `config.text`, read it back, and the marker survived completely
+intact (`strip_html=0` on that element, confirmed no comment-stripping);
+then restored the original content and verified an exact byte-for-byte
+match against a pre-write backup. This is the mechanism a future write/
+comparison implementation should build on: locate "our" element within any
+stencil by searching each element's content for the marker substring,
+independent of `uid`, position, or which other elements surround it.
+
+**Why no version in the marker:** considered and rejected. A version number
+or content hash embedded in the marker would drift the moment someone edits
+the element by hand in the Fluxx GUI -- exactly the scenario this project
+needs to tolerate (see "Customization-aware skipping" above, and the user's
+own framing: stencils are "easily modified in the GUI and someone may come
+up with a better layout eventually"). Git already answers "what version is
+this" for free (`git log` on the marked repo file); duplicating that into
+the deployed artifact would just create a second, weaker source of truth
+that can silently lie. Keep the marker doing exactly one job: stable
+identity, nothing else.
+
+**Still not built:** no markers have actually been added to the 6 Data
+Explorer block files or oauth-callback.html yet, and no comparison logic
+exists for either GrantRequest stencil (45712, 26253) or the GenericTemplate
+stencil (2686) beyond the plain-text comparison for oauth-callback.html
+implemented in this phase (see `compare.py`/`stencils.py`). Building the
+actual marker-based extraction (locate element by marker inside a
+`Stencil.json` element array, diff its content the same way
+`compare_shared` does for hook text) is the next piece of real work here.
+
 ## Write operations (future)
 
 Once comparison surfaces drift, the natural next step is applying fixes
