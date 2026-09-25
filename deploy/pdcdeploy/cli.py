@@ -7,24 +7,29 @@ The bearer token is never read from an env var or file -- it's prompted for
 interactively (and not echoed) each run, so it never lands on disk.
 
 This is read-only: it inventories what's live in Fluxx for the PDC
-integration and compares named methods / GrantRequest's PDC hook against a
-repo source (default: origin/main, i.e. macfound/fluxx-pdc-integration --
+integration and compares named methods / GrantRequest's PDC hook / the
+GenericTemplate and GrantRequest form stencils' PDC elements against a repo
+source (default: origin/main, i.e. macfound/fluxx-pdc-integration --
 override with --remote/--ref, or use --local to read the working tree on
-disk instead). Nothing is written to Fluxx or git. Stencil comparison isn't
-built yet -- see docs/roadmap.md's build order for what's deliberately
-deferred.
+disk instead). Nothing is written to Fluxx or git.
 """
 
 from __future__ import annotations
 
 import argparse
 import getpass
+import html
 import sys
 
 from .compare import ComparisonResult, Status, compare_owned, compare_shared, compare_whole
 from .fluxx_client import FluxxApiError, FluxxClient
 from .generic_templates import fetch_oauth_callback_element_text, find_grantee_generic_templates
 from .git_source import DEFAULT_REF, DEFAULT_REMOTE, GitSource, GitSourceError, WorkingTreeSource
+from .grant_request_stencils import (
+    DATA_EXPLORER_ELEMENT_PATHS,
+    fetch_element_raw_text,
+    find_grant_request_pdc_stencils,
+)
 from .hooks import find_grant_request_pdc_hooks
 from .manifest import TRACKED_MODEL_TYPES
 from .methods import fetch_body, find_tracked_methods
@@ -106,6 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         role_list = list_roles(client)
         stencil_refs = find_tracked_stencils(client)
         grantee_templates = find_grantee_generic_templates(client)
+        grant_request_stencils = find_grant_request_pdc_stencils(client, theme_status)
     except FluxxApiError as exc:
         print(f"Fluxx API error: {exc}", file=sys.stderr)
         return 1
@@ -147,6 +153,15 @@ def main(argv: list[str] | None = None) -> int:
     for label in missing:
         print(f"  MISSING: no form/list/show stencil found for {label}")
 
+    print_section("GrantRequest form stencils (PDC-bearing themes)")
+    if not grant_request_stencils:
+        print("No GrantRequest theme has a PDC hook, per the theme status above.")
+    for ref in grant_request_stencils:
+        if ref.stencil_id is None:
+            print(f"  theme[{ref.theme_id}] {ref.theme_name!r} -- MISSING: no form/list/show stencil found")
+        else:
+            print(f"  theme[{ref.theme_id}] {ref.theme_name!r} -> stencil[{ref.stencil_id}] updated_at={ref.updated_at}")
+
     print_section("Generic Template (grantee-facing, for oauth-callback.html)")
     if not grantee_templates:
         print("No UserProfile found with 'grantee' in categories.")
@@ -167,6 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         results = _compare_methods(client, methods_by_model, source)
         results += _compare_hooks(hooks, source)
         results += _compare_oauth_callback(client, grantee_templates, source)
+        results += _compare_grant_request_stencils(client, grant_request_stencils, source)
     except GitSourceError as exc:
         print(f"Git source error: {exc}", file=sys.stderr)
         return 1
@@ -228,6 +244,34 @@ def _compare_oauth_callback(
         label = f"oauth-callback ({template.profile_name} profile, stencil {template.stencil_id})"
         fluxx_body = fetch_oauth_callback_element_text(client, template.stencil_id)
         results.append(compare_whole(label, OAUTH_CALLBACK_PATH, fluxx_body, repo_body))
+    return results
+
+
+def _compare_grant_request_stencils(
+    client: FluxxClient, grant_request_stencils: list, source: GitSource | WorkingTreeSource
+) -> list[ComparisonResult]:
+    """Compares each of the 6 tracked elements (DATA_EXPLORER_ELEMENT_PATHS)
+    against every PDC-bearing theme's stencil. Confirmed on TRN (2026-09-25):
+    4 themes currently share the exact same underlying MachineState hook, but
+    each theme's STENCIL is its own separate record -- unlike the hook, a
+    stencil is not necessarily shared, so this compares per-theme rather than
+    assuming one shared source of truth the way _compare_hooks does.
+    """
+    results: list[ComparisonResult] = []
+    repo_bodies = {
+        element_id: source.read_file(path) for element_id, path in DATA_EXPLORER_ELEMENT_PATHS.items()
+    }
+    for ref in grant_request_stencils:
+        if ref.stencil_id is None:
+            for element_id, path in DATA_EXPLORER_ELEMENT_PATHS.items():
+                label = f"{element_id} (theme {ref.theme_name!r})"
+                results.append(ComparisonResult(label, path, Status.MISSING_IN_FLUXX, repo_content=repo_bodies[element_id]))
+            continue
+        for element_id, path in DATA_EXPLORER_ELEMENT_PATHS.items():
+            label = f"{element_id} (theme {ref.theme_name!r}, stencil {ref.stencil_id})"
+            raw = fetch_element_raw_text(client, ref.stencil_id, element_id)
+            fluxx_body = html.unescape(raw) if raw is not None else None
+            results.append(compare_whole(label, path, fluxx_body, repo_bodies[element_id]))
     return results
 
 
