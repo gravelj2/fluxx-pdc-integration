@@ -94,15 +94,16 @@ choice to drop that word would. Keep "decline" in the negative option's label.
       -- a `Stencil`/`GenericTemplate` id -- is the same id in every
       environment. Confirmed true across MacArthur's current environments
       as of 2026-09-24, but ids like this are environment-specific in
-      general (see the OAuth-callback Generic Template discovery in
-      docs/roadmap.md, where the id genuinely does vary per instance). A new
+      general (see the OAuth callback page in the "Fluxx configuration
+      reference" of docs/architecture.md, where the id genuinely does vary
+      per instance). A new
       deployer must confirm this id still resolves to the intended Q&A page
       before going live, and re-derive it if it doesn't.
 
-## Notes for the future deployment script
+## Deployment script
 
-- Deployment unit is (Fluxx model, method name, file body). A machine-readable
-  manifest mapping repo paths → model + method name + type (method / hook /
-  liquid block / stencil block) is the natural next step.
-- Secrets should be injected at deploy time from a secret store, overriding the
-  placeholder bodies of the two client-secret methods.
+Deployment is handled by the deploy model; see
+[deploy/README.md](../deploy/README.md). Its manifest
+([deploy/pdc-manifest.json](../deploy/pdc-manifest.json)) maps every repo path
+to its Fluxx model, record and type. Secret method bodies are never exported or
+installed from the repo; set them in Fluxx directly.

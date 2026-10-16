@@ -1,0 +1,41 @@
+{
+  "_comment": "What the deploy model itself consists of. PDC Bootstrap Deploy Model reads this from the repo and creates/updates each piece on whatever model type it runs on (model.class), so the model's name doesn't matter.",
+
+  "attributes": [
+    { "name": "repo_url",          "description": "Repo URL",          "attribute_type": "string" },
+    { "name": "repo_ref",          "description": "Repo Ref",          "attribute_type": "string" },
+    { "name": "pdc_event_role",    "description": "PDC Event Role",    "attribute_type": "multi_value" },
+    { "name": "pdc_grantee_profile", "description": "PDC Grantee Profile", "attribute_type": "multi_value" },
+    { "name": "pdc_staff_profile",   "description": "PDC Staff Profile",   "attribute_type": "multi_value" },
+    { "name": "validation_report", "description": "Validation Report", "attribute_type": "text" },
+    { "name": "last_validated_at", "description": "Last Validated At", "attribute_type": "datetime" },
+    { "name": "previous_configuration", "description": "Previous Configuration", "attribute_type": "text" },
+    { "name": "current_configuration",  "description": "Current Configuration",  "attribute_type": "text" }
+  ],
+
+  "methods": [
+    { "name": "PDC Bootstrap Deploy Model", "path": "deploy/installer/PDC Bootstrap Deploy Model.rb" },
+    { "name": "PDC Installer Lib",          "path": "deploy/installer/PDC Installer Lib.rb" },
+    { "name": "PDC Validate Install",       "path": "deploy/installer/PDC Validate Install.rb" },
+    { "name": "PDC_Discover",               "path": "deploy/installer/PDC_Discover.rb" },
+    { "name": "PDC_Export_Components",      "path": "deploy/installer/PDC_Export_Components.rb" },
+    { "name": "PDC Populate Options",       "path": "deploy/installer/PDC Populate Options.rb" }
+  ],
+
+  "_state_hook_prefix": "Put before the method call in every generated state hook so the record stays in its previous state (same pattern as the existing check_for_updates state).",
+  "state_hook_prefix": "model.state = model.state_was",
+
+  "states": [
+    { "name": "new",             "description": "New",               "state_type": "new" },
+    { "name": "validate",        "description": "Validate",          "state_type": "workflow", "invokes": "PDC Validate Install" },
+    { "name": "refresh_lists",   "description": "Refresh Lists",     "state_type": "workflow", "invokes": "PDC Populate Options" },
+    { "name": "update_installer","description": "Update Installer",  "state_type": "workflow", "invokes": "PDC Bootstrap Deploy Model" }
+  ],
+
+  "button_role": "Admin",
+  "events": [
+    { "button_name": "Validate",          "to_state": "validate",         "from_states": ["new"] },
+    { "button_name": "Refresh Lists",     "to_state": "refresh_lists",    "from_states": ["new"] },
+    { "button_name": "Update Installer",  "to_state": "update_installer", "from_states": ["new"] }
+  ]
+}

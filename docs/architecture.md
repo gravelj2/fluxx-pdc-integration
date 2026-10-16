@@ -103,3 +103,80 @@ kept byte-identical to what is deployed/tested):
 - `pdc-map` production credentials intentionally unconfigured:
   `Get Auth Token from PDC.rb` raises for prod; both client-secret methods
   return `"Not Configured"`.
+
+## Fluxx configuration reference
+
+How the pieces of the integration are stored in Fluxx. Confirmed against TRN
+(2026-09 to 2026-10) while building the deploy tooling; the deploy model
+([deploy/README.md](../deploy/README.md)) relies on all of it.
+
+| Piece | Where it lives | Matched by |
+|---|---|---|
+| Dynamic model | `MachineModelType` | `model_type` |
+| Field | `ModelAttribute` | `model_type` + `name` |
+| Dropdown option | `ModelAttributeValue` (`value`, `description`, `display_order`, `retired`) | attribute + `value` |
+| A record's selected value | `ModelAttributeChoice` (`model_id` = the record) | record data; never installed |
+| Method / save hook | `ModelMethod.unsafe_dyn_method`; `method_type` is `method`, `before_save` or `after_save` | `model_type` + `name` |
+| Before New / After Create | `ModelTheme.unsafe_before_new_block` / `unsafe_after_create_block` | `model_type` + theme `name` |
+| Workflow state | `MachineState` (one row per model type, shared by every theme); hooks in `unsafe_before_validation_enter` / `unsafe_after_enter` | `model_type` + `name` |
+| Workflow | `MachineWorkflow`, one per `ModelTheme` | theme |
+| Button | `MachineEvent` (`to_state_id`, `unsafe_guard`, `filter`) + `machine_event_from_states` (`button_order`) + `machine_event_roles` | workflow + `button_name` |
+| Layout | `Stencil.json` (element tree; groups nest children under `elements`) | see below |
+| Profile permission | `UserProfileRule` (`permission_name`, `allowed`) | `model_type` + `permission_name` |
+
+Ids differ on every instance, so nothing should be matched by id.
+
+**GrantRequest hooks.** The PDC send-on-grant logic sits in the shared
+`granted` state's `unsafe_after_enter`, between `###PDC_CODE###` and
+`###END_PDC_CODE###`. Because states are shared, every theme whose workflow
+reaches `granted` runs it (4 of 5 themes on TRN). `ModelTheme` hooks on
+GrantRequest hold only unrelated form defaults.
+
+**Button pattern.** A button is an event with `is_validation_suppressed` that
+moves the record into a transition state; that state's
+`unsafe_before_validation_enter` runs `model.state = model.state_was` and then
+`model.dyn_invoke_for(:"Method Name")`. Events need a role or they won't save.
+
+**Stencils.**
+- Element text is stored as typed (entities like `&#10003;` survive), but
+  Fluxx's stencil editor rewrites what it touches. It flattens multi-line
+  tags, stores Liquid `>` as `&gt;`, and can inject
+  `<span class='mceNonEditable liquid-output'>` into HTML attributes. That
+  last one broke the stencil-container block on GrantRequest stencil 26253
+  (theme 13948).
+- On GrantRequest form stencils the Data Explorer blocks sit inside one group,
+  "Contribute to the Philanthropy Data Commons (PDC)". The group can't carry a
+  marker, so it's found by its contents.
+- A stencil's `form_type` is a serialized array; each model also has a
+  `Filter` stencil. Imports can leave several identical `default` stencils
+  (the Integration Map has three on TRN).
+- `user_profile` settings inside a stencil hold UserProfile ids, which differ
+  per instance.
+
+**OAuth callback page.** It's an element in a GenericTemplate stencil. A
+dashboard card URL `/generic_templates/{id}` is a `Stencil` id with
+`model_type` `GenericTemplate`. The page is reached from a grantee profile's
+dashboard: UserProfile (`categories`, a JSON string, includes `"grantee"`) →
+`dashboard_template_ids[0]` → `DashboardTemplate.data` → `cards[].detail.url`.
+TRN has two grantee-category profiles (Grantee 77, Borrower 1779), so the
+profile has to be chosen, not guessed.
+
+**Ids hard-coded in methods.** `CurrentConsentLanguage` links to
+`/show/generic_templates/44210` (the Q&A page), and `Get PDC Base URL` reads
+`ClientConfiguration` 47. Both differ per instance.
+
+**Secrets.** `Get PDC Client ID` and `Get PDC Client Secret` hold real
+credentials in Fluxx and placeholders in the repo. They are never exported or
+compared.
+
+**REST API limits.** Why install runs as Ruby inside Fluxx instead of through
+the API:
+- Saving any custom-Ruby field over REST fails for non-super-admins ("unable
+  to make updates to custom Ruby fields").
+- `DELETE` only soft-deletes, and soft-deleted records can't be found again.
+- The `filter` parameter is ignored, so lists must be filtered client-side;
+  `per_page` maxes out at 500.
+
+Ruby running inside Fluxx has none of these limits. Records it deletes with
+`destroy` are hard-deleted, so the installer backs bodies up before replacing
+them.
