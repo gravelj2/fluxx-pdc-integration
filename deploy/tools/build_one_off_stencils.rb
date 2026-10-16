@@ -95,11 +95,14 @@ script << <<~'RUBY'
           id = ids.first
           next unless targets.empty? || targets.include?([id, st.id])
           spec = specs.find { |s| s['id'] == id }
-          if lib[:sha].call(text) == lib[:sha].call(spec['text'])
+          text_ok = lib[:sha].call(text) == lib[:sha].call(spec['text'])
+          config_bad = lib[:element_config_problems].call(entry['element'], scope['element_required_config'])
+          if text_ok && config_bad.empty?
             log['ok'] << where
             next
           end
-          changes << [entry['trail'], text, spec['text'], where]
+          where = "#{where} [#{[text_ok ? nil : 'text', *config_bad].compact.join(', ')}]"
+          changes << [entry['trail'], text, spec['text'], where, config_bad.any?]
         end
         next if changes.empty?
         if changes.map { |c| c[0] }.uniq.size != changes.size
@@ -114,9 +117,10 @@ script << <<~'RUBY'
         # Minimal edit: swap only each element's encoded text inside the stored JSON.
         # If any swap isn't unambiguous, rewrite the whole document instead (same
         # content, possibly different escaping).
-        new_raw = raw.dup
+        new_raw = changes.any? { |c| c[4] } ? nil : raw.dup   # settings changes need the document rewritten
         method = 'in place'
         changes.each do |_, old_text, new_text, _|
+          break if new_raw.nil?
           pair = encodings.call(old_text).zip(encodings.call(new_text)).find { |old_enc, _| new_raw.scan(old_enc).size == 1 }
           if pair.nil?
             new_raw = nil
@@ -125,7 +129,12 @@ script << <<~'RUBY'
           new_raw = new_raw.sub(pair[0]) { pair[1] }
         end
         if new_raw.nil?
-          changes.each { |trail, _, new_text, _| trail.inject(doc) { |n, i| n['elements'][i] }['config']['text'] = new_text }
+          changes.each do |trail, _, new_text, _|
+            cfg = trail.inject(doc) { |n, i| n['elements'][i] }['config']
+            cfg['text'] = new_text
+            # Write settings in forms Fluxx already uses: true for on, "0" for off
+            (scope['element_required_config'] || {}).each { |k, want| cfg[k] = want ? true : '0' unless lib[:truthy].call(cfg[k]) == want }
+          end
           new_raw = JSON.generate(doc)
           method = 'whole document rewritten'
         end
@@ -134,7 +143,7 @@ script << <<~'RUBY'
         check = JSON.parse(new_raw)
         bad = changes.reject do |trail, _, new_text, _|
           node = trail.inject(check) { |n, i| n['elements'][i] }
-          node['config']['text'] == new_text
+          node['config']['text'] == new_text && lib[:element_config_problems].call(node, scope['element_required_config']).empty?
         end
         raise "verification failed for #{bad.map { |c| c[3] }.join('; ')}; nothing saved" unless bad.empty?
 

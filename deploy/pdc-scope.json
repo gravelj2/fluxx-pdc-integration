@@ -38,6 +38,9 @@
   "_stencil_profile_keys": "Stencil settings holding UserProfile ids. Masked when hashing (ids differ per instance); checked against the deploy model's pdc_staff_profile instead.",
   "stencil_profile_keys": ["user_profile"],
 
+  "_element_required_config": "Settings every PDC stencil element needs. allow_script lets its JavaScript (and onload handlers) run; strip_html would remove its markup. Fluxx stores these as true/\"1\"/\"0\"; any on/off form is accepted.",
+  "element_required_config": { "allow_script": true, "strip_html": false },
+
   "stencil_elements": [
     { "id": "portal-style",               "path": "data-explorer/1. portal-style.html",          "host_model_types": ["GrantRequest"],    "include": ["<style", "pdc-floating-panel"],                                   "exclude": [] },
     { "id": "fluxx-card-api",             "path": "data-explorer/2. fluxxCardAPI.html",          "host_model_types": ["GrantRequest"],    "include": ["ACTIVE_CARD_SELECTOR"],                                          "exclude": [] },

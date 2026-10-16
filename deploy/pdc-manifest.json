@@ -68,6 +68,11 @@
     "stencil_profile_keys": [
       "user_profile"
     ],
+    "_element_required_config": "Settings every PDC stencil element needs. allow_script lets its JavaScript (and onload handlers) run; strip_html would remove its markup. Fluxx stores these as true/\"1\"/\"0\"; any on/off form is accepted.",
+    "element_required_config": {
+      "allow_script": true,
+      "strip_html": false
+    },
     "stencil_elements": [
       {
         "id": "portal-style",

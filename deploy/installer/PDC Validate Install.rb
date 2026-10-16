@@ -12,6 +12,7 @@
 #   UNMARKED          PDC stencil element found by fingerprint, no PDC:ELEMENT marker yet
 #                     (content matches the repo)
 #   UNMARKED_DIFFERS  same, but the content differs from the repo copy
+#   CONFIG_DIFFERS    a PDC stencil element has Allow JavaScript off or strips HTML
 #   AMBIGUOUS         an element's fingerprints match more than one PDC element; needs a human
 #   DUPLICATE         the same PDC element appears more than once in one stencil
 #

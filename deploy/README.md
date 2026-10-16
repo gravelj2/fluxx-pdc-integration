@@ -56,6 +56,7 @@ The stencil isn't generated yet; lay out the fields by hand for now.
    | `MISSING_ROLE` / `ROLE_DIFFERS` | Integration Map button has no role, or not the chosen one |
    | `UNMARKED` | PDC stencil element recognized by fingerprint but lacking its `PDC:ELEMENT` marker (fixed by the upcoming "Adopt markers" step) |
    | `UNMARKED_DIFFERS` | Same as `UNMARKED`, but the element's content also differs from the repo copy |
+   | `CONFIG_DIFFERS` | A PDC stencil element has Allow JavaScript off, or strips HTML; its scripts won't run |
    | `PROFILE_DIFFERS` | Consent permissions or a stencil restriction use a different profile than the one chosen |
    | `AMBIGUOUS` | An element's fingerprints match more than one PDC element; needs a person to look |
    | `DUPLICATE` | The same PDC element appears more than once in one stencil |

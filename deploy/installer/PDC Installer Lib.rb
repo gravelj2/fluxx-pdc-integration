@@ -165,6 +165,20 @@ lib[:element_text] = lambda do |el|
   cfg['text'].is_a?(String) ? cfg['text'] : nil
 end
 
+# Fluxx stores checkbox settings as true, "1", "0", etc.
+lib[:truthy] = lambda do |v|
+  v == true || v.to_s.strip =~ /\A(1|true|yes|on)\z/i ? true : false
+end
+
+# Required element settings (scope "element_required_config") that this element
+# doesn't have, e.g. ["allow_script is off, needs on"].
+lib[:element_config_problems] = lambda do |el, required|
+  cfg = el['config'].is_a?(Hash) ? el['config'] : {}
+  (required || {}).reject { |k, want| lib[:truthy].call(cfg[k]) == want }.map do |k, want|
+    "#{k} is #{lib[:truthy].call(cfg[k]) ? 'on' : 'off'}, needs #{want ? 'on' : 'off'}"
+  end
+end
+
 lib[:form_types] = lambda do |stencil|
   ft = stencil.form_type
   ft.is_a?(Array) ? ft.map(&:to_s) : ft.to_s.split(/[,\s]+/)
@@ -212,7 +226,8 @@ lib[:locate_elements] = lambda do |scope, include_text = false|
           'trail' => entry['trail'],
           'parent_groups' => entry['parents'],
           'sha256' => lib[:sha].call(text),
-          'sha256_decoded' => lib[:sha].call(decoded)
+          'sha256_decoded' => lib[:sha].call(decoded),
+          'config_problems' => lib[:element_config_problems].call(entry['element'], scope['element_required_config'])
         }.merge(include_text ? { 'text' => text } : {})
       end
     end
@@ -430,7 +445,7 @@ end
 # Returns report rows: { kind, key, status, detail }.
 # Statuses: MATCH, DIFFERS, MISSING, EXTRA, SKIPPED_SECRET, MARKER_NOT_FOUND,
 # MISSING_ROLE, ROLE_DIFFERS, PROFILE_DIFFERS, UNMARKED, UNMARKED_DIFFERS,
-# AMBIGUOUS, DUPLICATE.
+# CONFIG_DIFFERS, AMBIGUOUS, DUPLICATE.
 lib[:validate] = lambda do |manifest, live, deploy_model|
   rows = []
   row = lambda { |kind, key, status, detail = nil| rows << { 'kind' => kind, 'key' => key, 'status' => status, 'detail' => detail }.compact }
@@ -495,6 +510,10 @@ lib[:validate] = lambda do |manifest, live, deploy_model|
     end
     locs.group_by { |loc| loc['stencil_id'] }.each do |stencil_id, here|
       where = "#{m['key']} @ stencil #{stencil_id} (#{here.first['stencil_name']})"
+      here.each do |loc|
+        problems = Array(loc['config_problems'])
+        row.call('stencil_elements', where, 'CONFIG_DIFFERS', problems) if problems.any?
+      end
       groups = here.map { |loc| loc['parent_groups'] }.uniq
       if here.any? { |loc| Array(loc['also_matches']).any? }
         row.call('stencil_elements', where, 'AMBIGUOUS', here.map { |loc| "trail #{loc['trail'].inspect} also looks like #{loc['also_matches'].join(', ')}" })
