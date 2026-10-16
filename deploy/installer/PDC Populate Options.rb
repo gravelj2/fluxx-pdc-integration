@@ -29,12 +29,15 @@ sync = lambda do |attr_name, records|
                                   display_order: i + 1, retired: false)
       added += 1
     elsif v.description != label || v.retired
-      v.update_attributes(description: label, retired: false)
+      v.description = label
+      v.retired = false
+      v.save!
     end
   end
   existing.each_value do |v|
     next if v.retired
-    v.update_attributes(retired: true)
+    v.retired = true
+    v.save!
     retired += 1
   end
   "#{attr_name}: #{added} added, #{retired} retired"

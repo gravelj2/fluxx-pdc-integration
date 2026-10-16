@@ -242,8 +242,13 @@ lib[:collect] = lambda do |scope, include_bodies|
     entry[field] = lib[:normalize].call(text) if include_bodies && entry["#{field}_sha256"]
   end
   state_names = {}
+  # A button can point at a soft-deleted state; name it so the button reports DIFFERS.
   state_name = lambda do |id|
-    state_names[id] ||= (s = MachineState.find_by(id: id)) ? s.name : "missing-state-#{id}"
+    state_names[id] ||=
+      if (s = MachineState.find_by(id: id)).nil? then "missing-state-#{id}"
+      elsif s.respond_to?(:deleted_at) && s.deleted_at.present? then "#{s.name} (deleted)"
+      else s.name
+      end
   end
 
   # Models
@@ -424,7 +429,8 @@ end
 
 # Returns report rows: { kind, key, status, detail }.
 # Statuses: MATCH, DIFFERS, MISSING, EXTRA, SKIPPED_SECRET, MARKER_NOT_FOUND,
-# MISSING_ROLE, ROLE_DIFFERS, PROFILE_DIFFERS, UNMARKED, AMBIGUOUS, DUPLICATE.
+# MISSING_ROLE, ROLE_DIFFERS, PROFILE_DIFFERS, UNMARKED, UNMARKED_DIFFERS,
+# AMBIGUOUS, DUPLICATE.
 lib[:validate] = lambda do |manifest, live, deploy_model|
   rows = []
   row = lambda { |kind, key, status, detail = nil| rows << { 'kind' => kind, 'key' => key, 'status' => status, 'detail' => detail }.compact }
@@ -495,7 +501,11 @@ lib[:validate] = lambda do |manifest, live, deploy_model|
       elsif here.size > 1
         row.call('stencil_elements', where, 'DUPLICATE', here.map { |loc| "copy at trail #{loc['trail'].inspect} in groups: #{loc['parent_groups'].join(' > ')}" })
       elsif here.first['via'] == 'fingerprint'
-        row.call('stencil_elements', where, 'UNMARKED', ["groups: #{groups.first.join(' > ')}"])
+        # No marker yet, but the content can still be compared with the repo
+        # copy minus its marker line.
+        same = m['unmarked_sha256'] && [here.first['sha256'], here.first['sha256_decoded']].include?(m['unmarked_sha256'])
+        row.call('stencil_elements', where, same ? 'UNMARKED' : 'UNMARKED_DIFFERS',
+                 ["#{same ? 'content matches the repo' : 'content differs from the repo'}; groups: #{groups.first.join(' > ')}"])
       elsif [here.first['sha256'], here.first['sha256_decoded']].include?(m['sha256'])
         row.call('stencil_elements', where, 'MATCH')
       else

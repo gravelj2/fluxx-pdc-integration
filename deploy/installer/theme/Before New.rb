@@ -31,7 +31,8 @@ else
     body = resp.body.to_s.dup.force_encoding('UTF-8')
     bootstrap = ModelMethod.where(model_type: model.class.name, name: 'PDC Bootstrap Deploy Model', deleted_at: nil).first
     if bootstrap
-      bootstrap.update_attributes!(unsafe_dyn_method: body)
+      bootstrap.unsafe_dyn_method = body
+      bootstrap.save!
     else
       ModelMethod.create!(model_type: model.class.name, method_type: 'method', name: 'PDC Bootstrap Deploy Model', unsafe_dyn_method: body)
     end

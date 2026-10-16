@@ -88,7 +88,8 @@ result =
         log << "method #{m['name']}: up to date"
       else
         replaced["method #{m['name']}"] = mm.unsafe_dyn_method
-        mm.update_attributes!(unsafe_dyn_method: body)
+        mm.unsafe_dyn_method = body
+        mm.save!
         log << "method #{m['name']}: updated"
       end
     end
@@ -105,7 +106,8 @@ result =
         log << "state #{s['name']}: created"
       elsif hook && !same.call(st.unsafe_before_validation_enter, hook)
         replaced["state #{s['name']}"] = st.unsafe_before_validation_enter
-        st.update_attributes!(unsafe_before_validation_enter: hook)
+        st.unsafe_before_validation_enter = hook
+        st.save!
         log << "state #{s['name']}: hook updated"
       else
         log << "state #{s['name']}: exists"

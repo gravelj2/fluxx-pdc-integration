@@ -13,6 +13,9 @@
 #   ruby deploy/tools/pdc_manifest.rb check
 #       Fails if any manifest hash is stale, a referenced file is missing, or
 #       a data-explorer file doesn't match its own marker/fingerprints.
+#   ruby deploy/tools/pdc_manifest.rb report FILE
+#       Prints a validation report saved from Fluxx (one-off validate output
+#       or a validation_report field), grouped by status.
 #
 # The normalize/hash rules MUST stay identical to deploy/installer/PDC
 # Installer Lib.rb, or every body will report DIFFERS in Fluxx.
@@ -121,7 +124,10 @@ def rehash!(manifest)
   (manifest.keys & SECTIONS).each do |section|
     manifest[section].each do |entry|
       if section == 'stencil_elements'
-        entry['sha256'] = sha(read_repo(entry['path']))
+        text = read_repo(entry['path'])
+        entry['sha256'] = sha(text)
+        # Same content without its marker line, for copies not yet marked in Fluxx.
+        entry['unmarked_sha256'] = text && sha(text.sub(Regexp.new("\\A\\s*#{scope['markers']['element_regex']}[^\\n]*\\n?"), ''))
         problems << "#{entry['path']} is missing" if entry['sha256'].nil?
         next
       end
@@ -293,6 +299,21 @@ def check
   end
 end
 
+def report(path)
+  r = read_export(path)
+  abort "Validation failed in Fluxx: #{r['error']}" if r['error']
+  puts "Validated #{r['validated_at']} on #{r['deploy_model']} against #{r['ref']}"
+  puts "Summary: " + r['summary'].sort.map { |k, v| "#{k} #{v}" }.join(', ')
+  Array(r['warnings']).each { |w| puts "Warning: #{w}" }
+  r['problems'].group_by { |p| p['status'] }.sort.each do |status, rows|
+    puts "\n#{status} (#{rows.size})"
+    rows.sort_by { |p| [p['kind'], p['key']] }.each do |p|
+      puts "  #{p['kind']}: #{p['key']}"
+      Array(p['detail']).each { |d| puts "      #{d}" }
+    end
+  end
+end
+
 case ARGV[0]
 when 'unpack'
   abort 'usage: pdc_manifest.rb unpack EXPORT.json [--take ID[@STENCIL_ID] ...]' unless ARGV[1]
@@ -307,6 +328,9 @@ when 'rehash'
   puts "Rehashed #{MANIFEST_PATH}"
 when 'check'
   check
+when 'report'
+  abort 'usage: pdc_manifest.rb report FILE' unless ARGV[1]
+  report(ARGV[1])
 else
   abort File.read(__FILE__).lines.drop(1).take_while { |l| l.start_with?('#') }.join
 end

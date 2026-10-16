@@ -1178,7 +1178,8 @@
       "host_model_types": [
         "GrantRequest"
       ],
-      "sha256": "b458e9c02eef7b50e29c0c5251199f9e5266a56b828e522f545a968e71d1a173"
+      "sha256": "b458e9c02eef7b50e29c0c5251199f9e5266a56b828e522f545a968e71d1a173",
+      "unmarked_sha256": "0b45321006f45eaa34ece5e2ee47b19f86eb5cbbc1867bf639168ff0feefea7f"
     },
     {
       "key": "fluxx-card-api",
@@ -1187,7 +1188,8 @@
       "host_model_types": [
         "GrantRequest"
       ],
-      "sha256": "dfc10f4caf823351885819a88461293c40fb82cc2ccf27512e04bf98bfc33934"
+      "sha256": "dfc10f4caf823351885819a88461293c40fb82cc2ccf27512e04bf98bfc33934",
+      "unmarked_sha256": "2674f5865202c4af0f337f26a33130a0f8950ceb9ab955f6205caa11a8197ec8"
     },
     {
       "key": "oauth-client",
@@ -1196,7 +1198,8 @@
       "host_model_types": [
         "GrantRequest"
       ],
-      "sha256": "81154b14cb83c462cc629d4bf4f6dab760e0dadc64b101811404e43321dbc6f1"
+      "sha256": "81154b14cb83c462cc629d4bf4f6dab760e0dadc64b101811404e43321dbc6f1",
+      "unmarked_sha256": "a565b715102d5afb32350c9d64c38239271193e8b9aa31b9bd6f52362c4662d7"
     },
     {
       "key": "stencil-container",
@@ -1205,7 +1208,8 @@
       "host_model_types": [
         "GrantRequest"
       ],
-      "sha256": "a5676f58a4afc1922348617878f0b8a9ffeae9eebbe27f814aabf42c24796719"
+      "sha256": "a5676f58a4afc1922348617878f0b8a9ffeae9eebbe27f814aabf42c24796719",
+      "unmarked_sha256": "c70fb9e11d2a5feb1121931bb4547ff0f51aa363a051e81e1ce6d081a3ba7f2e"
     },
     {
       "key": "stencil-container-readonly",
@@ -1214,7 +1218,8 @@
       "host_model_types": [
         "GrantRequest"
       ],
-      "sha256": "6bd293220b9d73fa18d7c7f94a7b1f53382dd52980ec9fa86bf7f5e058685c05"
+      "sha256": "6bd293220b9d73fa18d7c7f94a7b1f53382dd52980ec9fa86bf7f5e058685c05",
+      "unmarked_sha256": "e24ff1b8b52eac6d95f479b32841e60b798cb215b34e6a533ae7acac81c10b13"
     },
     {
       "key": "floating-panel",
@@ -1223,7 +1228,8 @@
       "host_model_types": [
         "GrantRequest"
       ],
-      "sha256": "c879ec3cebc7ee5da4a21507da63084197610eb850548be9526fa862d2a74a42"
+      "sha256": "c879ec3cebc7ee5da4a21507da63084197610eb850548be9526fa862d2a74a42",
+      "unmarked_sha256": "573e7d5da90b95094308b7550ac538b1aafb74153bea3ad04ccf2b26f601d87a"
     },
     {
       "key": "consent-qa",
@@ -1232,7 +1238,8 @@
       "host_model_types": [
         "GenericTemplate"
       ],
-      "sha256": "f5467b7b0859240c64eaa4fba5113c48619fcfa771795c791f57f86c455d4199"
+      "sha256": "f5467b7b0859240c64eaa4fba5113c48619fcfa771795c791f57f86c455d4199",
+      "unmarked_sha256": "277c94884d48482c7c7553760578f787aff0a419a4a20ec2e6c021b85f03b740"
     },
     {
       "key": "oauth-callback",
@@ -1241,7 +1248,8 @@
       "host_model_types": [
         "GenericTemplate"
       ],
-      "sha256": "52660239f6c5c6b8b567aff06bc4c51819e5cf0114464549c31e44f2a2e73684"
+      "sha256": "52660239f6c5c6b8b567aff06bc4c51819e5cf0114464549c31e44f2a2e73684",
+      "unmarked_sha256": "26ffd63c59ff8b023e643eba326d26512207c457ea0d6a5ddd5d52d329d65d64"
     }
   ]
 }
