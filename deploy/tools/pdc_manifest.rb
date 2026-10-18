@@ -243,6 +243,12 @@ def unpack(export_path, takes = [])
     end
   end
 
+  # One element per required native field, as it sits on a working form, so a
+  # later install can add it to a stencil that lacks it.
+  templates = {}
+  Array(live['stencil_fields']).each { |f| templates[f['attribute']] ||= f['element'] if f['element'] }
+  manifest['stencil_field_templates'] = templates unless templates.empty?
+
   problems = rehash!(manifest)
   File.write(MANIFEST_PATH, JSON.pretty_generate(manifest) + "\n")
   puts "Wrote #{MANIFEST_PATH}"

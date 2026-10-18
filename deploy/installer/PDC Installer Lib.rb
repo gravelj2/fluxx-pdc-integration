@@ -235,6 +235,28 @@ lib[:locate_elements] = lambda do |scope, include_text = false|
   found
 end
 
+# Native fields the PDC code needs on the same stencil as a PDC element (scope
+# "required_stencil_fields"): one entry per stencil holding that element,
+# saying whether the field is on it.
+lib[:stencil_fields] = lambda do |scope, located, include_bodies|
+  out = []
+  Array(scope['required_stencil_fields']).each do |req|
+    ids = Array(located[req['with_element']]).map { |l| l['stencil_id'] }.uniq
+    next if ids.empty?
+    Stencil.where(id: ids).each do |st|
+      hit = lib[:stencil_elements].call(st['json']).find do |e|
+        e['element']['element_type'] == 'attribute' && e['element']['name'] == req['attribute']
+      end
+      entry = { 'key' => "#{req['model_type']}.#{req['attribute']} @ stencil #{st.id} (#{st.name.to_s.strip})",
+                'attribute' => req['attribute'], 'stencil_id' => st.id, 'present' => !hit.nil? }
+      entry['trail'] = hit['trail'] if hit
+      entry['element'] = hit['element'] if hit && include_bodies
+      out << entry
+    end
+  end
+  out
+end
+
 # ---------------------------------------------------------------------------
 # Live snapshot
 # ---------------------------------------------------------------------------
@@ -403,6 +425,7 @@ lib[:collect] = lambda do |scope, include_bodies|
   scope['stencil_elements'].each do |spec|
     live['stencil_elements'] << { 'key' => spec['id'], 'id' => spec['id'], 'locations' => located[spec['id']] }
   end
+  live['stencil_fields'] = lib[:stencil_fields].call(scope, located, include_bodies)
 
   live
 end
@@ -498,6 +521,12 @@ lib[:validate] = lambda do |manifest, live, deploy_model|
 
     next if kind == 'shared_slices'
     by_key.each_key { |key| row.call(kind, key, 'EXTRA') unless seen[key] }
+  end
+
+  # Required native fields on the stencils holding PDC elements
+  Array(live['stencil_fields']).each do |f|
+    row.call('stencil_fields', f['key'], f['present'] ? 'MATCH' : 'MISSING',
+             f['present'] ? nil : ["#{f['attribute']} is not on this form; the PDC code reads it"])
   end
 
   live_elements = {}
