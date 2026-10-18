@@ -572,6 +572,58 @@ lib[:pack_export] = lambda do |data|
   'PDCEXPORT1:' + Base64.strict_encode64(Zlib::Deflate.deflate(JSON.generate(data), Zlib::BEST_COMPRESSION))
 end
 
+# ---------------------------------------------------------------------------
+# Results shown on the deploy model card
+# ---------------------------------------------------------------------------
+
+# Colour group for a status, used by the Liquid results block.
+results_tone = lambda do |status|
+  st = status.to_s.downcase
+  if st =~ /\A(match|ok)\z/ then 'good'
+  elsif st =~ /would|skipped|kept|\Aunmarked\z/ then 'info'
+  elsif st =~ /\A(restored|created|overwrote|wrote|removed)/ then 'done'
+  else 'bad'
+  end
+end
+
+# One run's results, shaped for Liquid: summary counts per status, and the
+# items for every status except MATCH/ok. entries: [{ 'status', 'kind', 'key', 'detail' }]
+lib[:results_record] = lambda do |title, mode, entries, extra = {}|
+  groups = entries.group_by { |e| e['status'] }
+  {
+    'title' => title, 'mode' => mode, 'ran_at' => Time.now.utc.iso8601,
+    'summary' => groups.map { |st, es| { 'label' => st, 'count' => es.size, 'tone' => results_tone.call(st) } }.sort_by { |x| x['label'] },
+    'groups' => groups.reject { |st, _| %w[MATCH ok].include?(st) }.map do |st, es|
+      { 'label' => st, 'tone' => results_tone.call(st),
+        'items' => es.map { |e| { 'kind' => e['kind'], 'key' => e['key'], 'detail' => Array(e['detail']).join('; ') } } }
+    end.sort_by { |g| g['label'] }
+  }.merge(extra)
+end
+
+# Turns an install-style log ({ status => [keys] }) into results entries.
+lib[:log_entries] = lambda do |log|
+  log.flat_map { |status, keys| keys.map { |k| { 'status' => status, 'key' => k } } }
+end
+
+# Saves a results record to a text field on the deploy model, creating the
+# field if needed. save: true when run outside a save (a pasted script);
+# false inside a workflow-button hook, where the record is already being saved.
+lib[:store_results] = lambda do |deploy_model, field, record, save|
+  begin
+    rec = deploy_model
+    unless rec.respond_to?("#{field}=")
+      ModelAttribute.create!(model_type: rec.class.name, name: field, attribute_type: 'text', multi_allowed: false,
+                             description: field.split('_').map(&:capitalize).join(' '))
+      rec = rec.class.find(rec.id)
+    end
+    rec.public_send("#{field}=", JSON.generate(record))
+    rec.save! if save
+    "saved to #{field}"
+  rescue => e
+    "could not save to #{field}: #{e.class}: #{e.message}"
+  end
+end
+
 lib[:summarize] = lambda do |rows, meta|
   counts = Hash.new(0)
   rows.each { |r| counts[r['status']] += 1 }

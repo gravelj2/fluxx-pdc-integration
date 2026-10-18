@@ -16,34 +16,27 @@
 #   AMBIGUOUS         an element's fingerprints match more than one PDC element; needs a human
 #   DUPLICATE         the same PDC element appears more than once in one stencil
 #
-# Writes the report to validation_report / last_validated_at when those
-# fields exist, and returns it. Read-only otherwise.
+# Saves the results to validate_results on this deploy model (rendered on the
+# card by the Results block via PDC_Results), and returns them. Read-only
+# otherwise.
 
 require 'json'
 require 'time'
 
 lib = model.dyn_invoke_for(:"PDC Installer Lib")
-report =
+record =
   begin
     manifest = lib[:fetch_repo_json].call(model, 'deploy/pdc-manifest.json')
     # Validate with the scope the manifest was built from, so fingerprints
     # and exclusions always agree with the hashes.
     live = lib[:collect].call(manifest['scope'], false)
     rows = lib[:validate].call(manifest, live, model)
-    lib[:summarize].call(
-      rows,
-      'validated_at' => Time.now.utc.iso8601,
-      'repo_url' => model.repo_url,
-      'ref' => lib[:repo_ref].call(model),
-      'manifest_source' => manifest['source'],
-      'event_role' => lib[:selected_role_name].call(model),
-      'warnings' => Array(live['warnings'])
-    )
+    lib[:results_record].call('Validation', "read-only, against #{lib[:repo_ref].call(model)}", rows,
+                              'warnings' => Array(live['warnings']))
   rescue => e
-    { 'validated_at' => Time.now.utc.iso8601, 'error' => "#{e.class}: #{e.message}" }
+    lib[:results_record].call('Validation', 'failed', [], 'error' => "#{e.class}: #{e.message}")
   end
 
-text = JSON.pretty_generate(report)
-model.validation_report = text if model.respond_to?(:validation_report=)
-model.last_validated_at = Time.now if model.respond_to?(:last_validated_at=)
-text
+# Inside a workflow-button hook the record is already being saved.
+lib[:store_results].call(model, 'validate_results', record, false)
+JSON.generate(record)

@@ -34,7 +34,9 @@ next) and then deletes the deploy model in the GUI.
    state body it replaces is saved to `previous_configuration` first, because Fluxx
    hard-deletes and there is no undo.
 
-The stencil isn't generated yet; lay out the fields by hand for now.
+The stencil isn't generated yet; lay out the fields by hand for now, and add a
+text element containing [installer/stencil/Results.liquid](installer/stencil/Results.liquid)
+to show results (see below).
 
 ## Using it
 
@@ -43,7 +45,7 @@ The stencil isn't generated yet; lay out the fields by hand for now.
    - `pdc_event_role`: the role that may click the PDC Integration Map's buttons (TRN: Admin)
    - `pdc_grantee_profile`: grantees, who view and update their own PDC Consent records (TRN: Grantee)
    - `pdc_staff_profile`: staff allowed to edit the PDC fields the Consent form restricts (TRN: Employee with Permissions Plus)
-3. Click **Validate**. The report lands in `validation_report`:
+3. Click **Validate**. The results are saved to `validate_results` and shown on the card:
 
    | Status | Meaning |
    |---|---|
@@ -63,6 +65,42 @@ The stencil isn't generated yet; lay out the fields by hand for now.
 
 Validation is read-only. The report keeps counts for everything, and detail for anything
 that isn't `MATCH`.
+
+## Results on the card
+
+Each action saves what it did, as JSON, to a text field on the deploy record
+(created automatically if missing):
+
+| Field | Written by |
+|---|---|
+| `validate_results` | Validate |
+| `install_results` | Install (adds and repairs only; never removes) |
+| `cleanup_results` | Cleanup (removes only the extras you name) |
+
+`PDC_Results` reads the three fields, and the Liquid block in
+[installer/stencil/Results.liquid](installer/stencil/Results.liquid) renders
+them: when each ran and in which mode, a count per status, the items under
+every status except MATCH/ok, and any backup of replaced or removed values in a
+copyable box. Keep that element's tags on single lines and never open it in the
+rich text editor.
+
+## Install and cleanup
+
+Until install and cleanup are buttons on the deploy model, they run as paste-in
+scripts built by `deploy/tools/build_one_off_install.rb` and
+`deploy/tools/build_one_off_cleanup.rb` (both embed the manifest, so no repo
+access is needed). Both are dry runs until you change their first lines.
+
+- **Install** restores soft-deleted and creates missing fields, dropdown
+  options, methods, states and buttons, and with `overwrite_differs` replaces
+  ones that differ. It never removes anything.
+- **Cleanup** lists extras: methods, states and buttons on the three PDC
+  models that the manifest doesn't list. It soft-deletes only the keys you copy
+  into `remove_keys`. It never touches stencils or stencil elements, fields,
+  options, themes, models, GrantRequest, or the deploy model.
+- **Stencil elements** are written by `deploy/tools/build_one_off_stencils.rb`,
+  which only replaces the text (and Allow JavaScript / strip HTML settings) of
+  elements that already exist.
 
 ## Updating the manifest (maintainers)
 

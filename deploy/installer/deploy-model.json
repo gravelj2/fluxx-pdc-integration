@@ -7,8 +7,9 @@
     { "name": "pdc_event_role",    "description": "PDC Event Role",    "attribute_type": "multi_value" },
     { "name": "pdc_grantee_profile", "description": "PDC Grantee Profile", "attribute_type": "multi_value" },
     { "name": "pdc_staff_profile",   "description": "PDC Staff Profile",   "attribute_type": "multi_value" },
-    { "name": "validation_report", "description": "Validation Report", "attribute_type": "text" },
-    { "name": "last_validated_at", "description": "Last Validated At", "attribute_type": "datetime" },
+    { "name": "validate_results",  "description": "Validate Results",  "attribute_type": "text" },
+    { "name": "install_results",   "description": "Install Results",   "attribute_type": "text" },
+    { "name": "cleanup_results",   "description": "Cleanup Results",   "attribute_type": "text" },
     { "name": "previous_configuration", "description": "Previous Configuration", "attribute_type": "text" },
     { "name": "current_configuration",  "description": "Current Configuration",  "attribute_type": "text" }
   ],
@@ -19,7 +20,8 @@
     { "name": "PDC Validate Install",       "path": "deploy/installer/PDC Validate Install.rb" },
     { "name": "PDC_Discover",               "path": "deploy/installer/PDC_Discover.rb" },
     { "name": "PDC_Export_Components",      "path": "deploy/installer/PDC_Export_Components.rb" },
-    { "name": "PDC Populate Options",       "path": "deploy/installer/PDC Populate Options.rb" }
+    { "name": "PDC Populate Options",       "path": "deploy/installer/PDC Populate Options.rb" },
+    { "name": "PDC_Results",                "path": "deploy/installer/PDC_Results.rb" }
   ],
 
   "_state_hook_prefix": "Put before the method call in every generated state hook so the record stays in its previous state (same pattern as the existing check_for_updates state).",

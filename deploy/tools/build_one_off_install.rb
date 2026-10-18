@@ -16,11 +16,8 @@
 #   states   restore soft-deleted or create missing; overwrite settings and hooks
 #   buttons  restore soft-deleted or create missing (from-states, order, role);
 #            overwrite target, from-states, guard, filter, flags
-#   extras   always REPORTED: methods, states and buttons on the three PDC
-#            models that the manifest doesn't list. Only the ones named in
-#            remove_extras are soft-deleted. Nothing else is ever removed:
-#            not stencils or stencil elements, fields, options, themes, models,
-#            or anything on GrantRequest or other models.
+# Install only adds and repairs: it never removes anything. Extras are found
+# and removed by the separate cleanup script (build_one_off_cleanup.rb).
 # Not yet: models, stencils, permissions, the GrantRequest
 # `granted` block (reported by Validate; handled in later phases).
 #
@@ -28,9 +25,8 @@
 # - dry_run = true by default: lists what it would do, writes nothing.
 # - Existing records are only changed with overwrite_differs = true; restoring
 #   or creating MISSING records needs only dry_run = false.
-# - Every replaced value and every removed record comes back in the result,
-#   after "backup:", so nothing is lost.
-# - Removal is a soft delete (deleted_at); records without that column are left alone.
+# - Every replaced value comes back in the result, after "backup:", so
+#   nothing is lost.
 # - Secret methods are never touched. Only the PDC's own models are changed.
 # - Stops before writing if this user can't save custom Ruby.
 
@@ -78,12 +74,11 @@ script = <<~RUBY
   # Fields, methods, theme hooks, states and buttons on the PDC models. Stencils: one-off-stencils.rb.
   #   dry_run = false            write (restore/create missing records)
   #   overwrite_differs = true   also replace records that differ
-  #   remove_extras = [...]      keys of extras to soft-delete, copied from a dry run's "extra" list
   #   event_role_name            role for restored/created buttons; nil = the role the workflow's other buttons use
-  # Replaced and removed values come back after "backup:". The last line of this script must be: install_result
+  # Replaced values come back after "backup:". Results are also saved to install_results on this deploy record.
+  # The last line of this script must be: install_result
   dry_run = true
   overwrite_differs = false
-  remove_extras = []
   event_role_name = nil
   require 'json'
   require 'time'
@@ -112,7 +107,7 @@ script << <<~'RUBY'
       excluded = (scope['excluded_method_patterns'] || []).map { |p| Regexp.new(p) }
       secrets = scope['secret_methods'] || []
       log = Hash.new { |h, k| h[k] = [] }
-      backup = { 'replaced' => {}, 'removed' => {} }
+      backup = { 'replaced' => {} }
       now = Time.now
 
       # Columns whose value differs from what's wanted. Code columns compare
@@ -140,19 +135,6 @@ script << <<~'RUBY'
           log['overwrote'] << "#{key} [#{all.join(', ')}]"
         end
       end
-      soft_delete = lambda do |rec, key, fields|
-        unless rec.class.column_names.include?('deleted_at')
-          log['extra, cannot soft-delete (left alone)'] << key
-          next
-        end
-        unless dry_run
-          backup['removed'][key] = fields.each_with_object({ 'id' => rec.id }) { |f, h| h[f] = rec[f] }
-          rec.deleted_at = now
-          rec.save!
-        end
-        log[dry_run ? 'would remove' : 'removed'] << key
-      end
-
       # Fields (ModelAttribute) and static dropdown options (ModelAttributeValue)
       pdc_install['attributes'].each do |a|
         live = ModelAttribute.where(model_type: a['model_type'], name: a['name'], deleted_at: nil).first
@@ -315,47 +297,17 @@ script << <<~'RUBY'
         log[gone ? 'restored' : 'created'] << e['key']
       end
 
-      # Extras: methods, states and buttons on the three PDC models that the
-      # manifest doesn't list. Always reported; only keys named in remove_extras
-      # are soft-deleted. Methods matching the scope's exclusions (zzz*, known
-      # test methods) and secret methods are never reported or removed.
-      extra = lambda do |rec, key, fields|
-        if remove_extras.include?(key)
-          soft_delete.call(rec, key, fields)
-        else
-          log['extra (kept; add its key to remove_extras to remove it)'] << key
-        end
-      end
-      known = pdc_install['methods'].map { |m| m['key'] }
-      ModelMethod.where(model_type: owned, deleted_at: nil).each do |mm|
-        key = "#{mm.model_type}##{mm.name}"
-        next if known.include?(key) || secrets.include?(mm.name) || excluded.any? { |re| mm.name =~ re }
-        extra.call(mm, key, %w[name method_type unsafe_dyn_method])
-      end
-      known_events = pdc_install['events'].map { |e| e['key'] }
-      ModelTheme.where(model_type: owned, deleted_at: nil).each do |t|
-        MachineWorkflow.where(model_theme_id: t.id, deleted_at: nil).each do |wf|
-          MachineEvent.where(machine_workflow_id: wf.id, deleted_at: nil).each do |ev|
-            key = "#{t.model_type}/#{t.name}>#{ev.button_name}"
-            extra.call(ev, key, %w[button_name to_state_id unsafe_guard]) unless known_events.include?(key)
-          end
-        end
-      end
-      known_states = pdc_install['states'].map { |s| s['key'] }
-      MachineState.where(model_type: owned, deleted_at: nil).each do |st|
-        key = "#{st.model_type}:#{st.name}"
-        extra.call(st, key, %w[name unsafe_before_validation_enter unsafe_after_enter]) unless known_states.include?(key)
-      end
-      found = log.values.flatten
-      remove_extras.each { |k| log['remove_extras key not found (nothing removed)'] << k unless found.include?(k) }
-
       summary = log.map { |k, v| "#{k} #{v.size}" }.join(', ')
       detail = log.reject { |k, _| k == 'ok' }.map { |k, v| "#{k}: #{v.join('; ')}" }.join(' | ')
-      saved = backup['replaced'].empty? && backup['removed'].empty? ? '' : ' || backup: ' + lib[:pack_export].call(backup.merge('at' => now.utc.iso8601))
-      flags = dry_run ? 'DRY RUN, nothing written' : "WRITE#{overwrite_differs ? ', overwrite' : ''}#{remove_extras.empty? ? '' : ', remove listed extras'}"
-      "PDC install (#{flags}): #{summary}#{detail.empty? ? '' : ' || ' + detail}#{saved}"
+      packed = backup['replaced'].empty? ? nil : lib[:pack_export].call(backup.merge('at' => now.utc.iso8601))
+      flags = dry_run ? 'dry run, nothing written' : "write#{overwrite_differs ? ', overwrite' : ''}"
+      record = lib[:results_record].call('Install', flags, lib[:log_entries].call(log), packed ? { 'backup' => packed } : {})
+      stored = lib[:store_results].call(model, 'install_results', record, true)
+      "PDC install (#{flags}; #{stored}): #{summary}#{detail.empty? ? '' : ' || ' + detail}#{packed ? ' || backup: ' + packed : ''}"
     rescue => e
-      "PDC install failed: #{e.class}: #{e.message} @ #{Array(e.backtrace).first(3).join(' | ')}"
+      failed = "#{e.class}: #{e.message} @ #{Array(e.backtrace).first(3).join(' | ')}"
+      lib[:store_results].call(model, 'install_results', lib[:results_record].call('Install', 'failed', [], 'error' => failed), true) rescue nil
+      "PDC install failed: #{failed}"
     end
   install_result
 RUBY

@@ -1,7 +1,8 @@
 #!/usr/bin/env ruby
 # Builds a single paste-in validation script that needs no repo access: it
 # embeds deploy/pdc-manifest.json (compressed) and PDC Installer Lib, then runs
-# the same comparison as PDC Validate Install. Read-only.
+# the same comparison as PDC Validate Install. Read-only, except that it saves
+# its results to validate_results on the deploy record it runs on.
 #
 #   ruby deploy/tools/build_one_off_validate.rb [OUT]   (default DEV/one-off-validate.rb)
 #
@@ -48,8 +49,11 @@ script << <<~'RUBY'
         'deploy_model' => model.class.name,
         'warnings' => Array(live['warnings'])
       )
+      record = lib[:results_record].call('Validation', 'read-only, embedded manifest', rows,
+                                         'warnings' => Array(live['warnings']))
+      saved = lib[:store_results].call(model, 'validate_results', record, true)
       summary = report['summary'].sort.map { |k, v| "#{k} #{v}" }.join(', ')
-      "PDC validation: #{summary} || " + lib[:pack_export].call(report)
+      "PDC validation (#{saved}): #{summary} || " + lib[:pack_export].call(report)
     rescue => e
       "PDC validate failed: #{e.class}: #{e.message} @ #{Array(e.backtrace).first(3).join(' | ')}"
     end
