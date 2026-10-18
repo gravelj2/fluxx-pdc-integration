@@ -34,6 +34,8 @@
     { "name": "update_installer","description": "Update Installer",  "state_type": "workflow", "invokes": "PDC Bootstrap Deploy Model" }
   ],
 
+  "stencil_layout": "deploy/installer/stencil/layout.json",
+
   "button_role": "Admin",
   "events": [
     { "button_name": "Validate",          "to_state": "validate",         "from_states": ["new"] },

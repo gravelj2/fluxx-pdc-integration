@@ -2,12 +2,13 @@
 #
 # Builds (or refreshes) the deploy model itself from deploy/installer/
 # deploy-model.json in the repo: its attributes, installer methods, states,
-# and workflow buttons. Runs on whatever model type it's attached to
+# workflow buttons, and its form (stencil/layout.json overwrites the stencil
+# Fluxx created). Runs on whatever model type it's attached to
 # (model.class), so the deploy model's name doesn't matter.
 #
 # Called by the pasted Before New on the first record, and later by the
 # "Update Installer" button. Safe to re-run: missing pieces are created,
-# changed method/state bodies are replaced, and every replaced body is first
+# changed method/state bodies and the stencil are replaced, and each is first
 # saved to previous_configuration (Fluxx hard-deletes, so there is no undo).
 #
 # Returns (and stores in current_configuration) a JSON log of what it did.
@@ -17,6 +18,7 @@ require 'net/http'
 require 'uri'
 require 'cgi'
 require 'time'
+require 'securerandom'
 
 mt = model.class.name
 log = []
@@ -141,7 +143,71 @@ result =
       log << "button #{e['button_name']}: created"
     end
 
-    # 5. Record values and the instance-specific dropdowns
+    # 5. The deploy model's own form: overwrite the stencil Fluxx created with
+    # the repo layout. This is the only installer step that edits it; the other
+    # methods just write field values the layout renders.
+    layout = JSON.parse(fetch.call(spec['stencil_layout']))
+    attr_types = ModelAttribute.where(model_type: mt, deleted_at: nil).pluck(:name, :attribute_type).to_h
+    visibility = lambda do
+      { 'visible_show' => true, 'visible_form' => true, 'advanced_filter' => '1',
+        'advanced_query' => JSON.generate('group_type' => 'and', 'conditions' => [], 'relationship_filter_model_type' => mt),
+        'advanced_sort' => '[]' }
+    end
+    build = nil
+    build = lambda do |el|
+      if el['group']
+        { 'element_type' => 'group', 'name' => 'group', 'label' => el['group'],
+          'config' => { 'label' => el['group'], 'collapsible' => el['collapsible'] ? '1' : '0', 'default_open' => '0',
+                        'disable_lazy_load' => '0', 'hide_label' => '0', 'reveal_if_type' => 'show', 'show_in_toc' => '0' },
+          'visibility' => visibility.call,
+          'styling' => { 'alignment' => 'left', 'border_radius' => '7', 'padding_top' => '7', 'padding_bottom' => '7',
+                         'padding_left' => '7', 'padding_right' => '7', 'border_top_enabled' => true,
+                         'border_bottom_enabled' => true, 'border_left_enabled' => true, 'border_right_enabled' => true },
+          'uid' => SecureRandom.uuid, 'elements' => el['elements'].map { |c| build.call(c) } }
+      elsif el['field']
+        raise "layout field #{el['field']} is not an attribute on #{mt}" unless attr_types.key?(el['field'])
+        config = { 'label' => el['label'], 'required' => '0' }
+        config['show_as_radio_buttons'] = '0' if attr_types[el['field']] == 'multi_value'
+        config.merge!('allow_rich_text' => '0', 'trackable' => '0', 'trackable_workflow' => '0') if attr_types[el['field']] == 'text'
+        vis = visibility.call
+        vis['lock_field'] = true if el['lock']
+        { 'element_type' => 'attribute', 'name' => el['field'], 'label' => el['label'], 'config' => config,
+          'visibility' => vis, 'styling' => { 'alignment' => 'left' }, 'uid' => SecureRandom.uuid }
+      else
+        { 'element_type' => 'text', 'name' => 'text',
+          'config' => { 'text' => fetch.call(el['text_path']), 'strip_html' => '0', 'allow_script' => '0' },
+          'visibility' => visibility.call, 'styling' => { 'alignment' => 'left' }, 'uid' => SecureRandom.uuid }
+      end
+    end
+    new_doc = { 'elements' => layout['elements'].map { |el| build.call(el) } }
+    without_uids = nil
+    without_uids = lambda do |node|
+      case node
+      when Hash then node.reject { |k, _| k == 'uid' }.transform_values { |v| without_uids.call(v) }
+      when Array then node.map { |v| without_uids.call(v) }
+      else node
+      end
+    end
+    form_types = lambda { |st| st.form_type.is_a?(Array) ? st.form_type.map(&:to_s) : st.form_type.to_s.split(/[,\s]+/) }
+    stencils = Stencil.where(model_type: mt, deleted_at: nil).to_a
+    target = stencils.select { |st| form_types.call(st).include?('form') }.max_by { |st| [st.compiled ? 1 : 0, st.updated_at.to_i] }
+    if target.nil?
+      log << "stencil: none found for #{mt} (#{stencils.size} without a form type); create the form in the GUI and click Update Installer"
+    else
+      old_doc = (JSON.parse(target['json'].to_s) rescue nil)
+      if old_doc && without_uids.call(old_doc) == without_uids.call(new_doc)
+        log << "stencil #{target.id}: up to date"
+      else
+        replaced["stencil #{target.id}"] = target['json'].to_s
+        target['json'] = JSON.generate(new_doc)
+        target.save!
+        log << "stencil #{target.id}: overwritten with the repo layout"
+      end
+      others = stencils.map(&:id) - [target.id]
+      log << "stencil: left other #{mt} stencils alone (#{others.join(', ')})" unless others.empty?
+    end
+
+    # 6. Record values and the instance-specific dropdowns
     model.repo_url = repo_url if model.respond_to?(:repo_url=) && model.repo_url.blank?
     model.repo_ref = repo_ref if model.respond_to?(:repo_ref=) && model.repo_ref.blank?
     log << model.dyn_invoke_for(:"PDC Populate Options").to_s

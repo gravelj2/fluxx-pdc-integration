@@ -84,6 +84,18 @@ every status except MATCH/ok, and any backup of replaced or removed values in a
 copyable box. Keep that element's tags on single lines and never open it in the
 rich text editor.
 
+### The deploy model's form
+
+The bootstrap (first record, and **Update Installer**) overwrites the deploy
+model's form stencil with [installer/stencil/layout.json](installer/stencil/layout.json):
+the settings fields, the results block above, and a collapsed installer log.
+The old stencil JSON is saved to `previous_configuration` first, and an
+unchanged layout isn't rewritten. Nothing else edits this stencil; Validate,
+Install and Cleanup only write field values. Change the form by editing
+`layout.json` in the repo, not in Fluxx, or the next Update Installer replaces
+your edits. To try a layout before pushing, run the paste-in script built by
+`deploy/tools/build_one_off_layout.rb`.
+
 ## Install and cleanup
 
 Until install and cleanup are buttons on the deploy model, they run as paste-in
