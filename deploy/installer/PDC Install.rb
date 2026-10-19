@@ -23,9 +23,12 @@
 #             the role the workflow's other buttons use); with neither, a
 #             missing button isn't created
 #   granted   the ###PDC_CODE### block in GrantRequest's granted hook
+#             (added at the top of the hook if it isn't there)
 #   elements  the text and settings of PDC stencil elements already on a
-#             form (missing elements are reported; Install doesn't add or
-#             move elements yet)
+#             form; elements a chosen form lacks (PDC Themes, PDC Read-only
+#             Themes, and the PDC Grantee Profile's dashboard page) are added
+#             in a PDC group at the bottom, with the native fields they need,
+#             for the admin to move
 #
 # Validate shows what Install will change. Before changing anything, the
 # whole PDC configuration is saved to previous_configuration; Restore
@@ -40,6 +43,7 @@ lib = model.dyn_invoke_for(:"PDC Installer Lib") unless defined?(lib) && lib
 bundle = (defined?(pdc_bundle) && pdc_bundle) || lib[:fetch_repo_json].call(model, 'deploy/pdc-install-bundle.json')
 save_now = defined?(pdc_one_off) && pdc_one_off ? true : false
 
+plan = nil   # set below, before the run
 install = lambda do |log|
   scope = bundle['scope']
   markers = scope['markers']
@@ -245,8 +249,13 @@ install = lambda do |log|
     st = MachineState.where(model_type: x['model_type'], name: x['state'], deleted_at: nil).first
     slice = st && lib[:code_slice].call(st[x['field']], markers)
     want = lib[:code_slice].call(x['body'], markers) || x['body']
-    if slice.nil?
-      log['PDC block not found (add by hand)'] << x['key']
+    if st.nil?
+      log["#{x['state']} state missing (create it in the GrantRequest workflow)"] << x['key']
+    elsif slice.nil?
+      # At the top, so it always runs (it doesn't trigger another save)
+      st[x['field']] = "#{want}\n#{st[x['field']]}"
+      st.save!
+      log['added PDC block (top of hook)'] << x['key']
     elsif lib[:sha].call(slice) == lib[:sha].call(want)
       log['ok'] << x['key']
     else
@@ -266,7 +275,6 @@ install = lambda do |log|
     plain = JSON.generate(str)[1..-2]
     [plain, plain.gsub('&', '\u0026').gsub('<', '\u003c').gsub('>', '\u003e')].uniq
   end
-  specs.each { |s| log['element missing from every form (add by hand)'] << s['id'] if Array(located[s['id']]).empty? }
   by_stencil = Hash.new { |h, k| h[k] = [] }
   located.each { |id, locs| locs.each { |l| by_stencil[l['stencil_id']] << l.merge('id' => id) } }
   by_stencil.each do |stencil_id, locs|
@@ -320,7 +328,31 @@ install = lambda do |log|
     changes.each { |c| log['wrote element'] << c['where'] }
   end
 
+  # PDC elements (and the native fields they need) that aren't on the chosen
+  # forms yet: added in a PDC group at the bottom; admins move them afterwards
+  if missing_models.empty?
+    plan['notes'].each { |n| log['note'] << n }
+    group_label = (scope['placement'] || {})['group_label'] || 'PDC'
+    attrs_by_name = bundle['attributes'].each_with_object({}) { |a, h| h[[a['model_type'], a['name']]] = a }
+    plan['forms'].each do |f|
+      next if f['elements'].empty? && f['fields'].empty?
+      st = Stencil.find(f['stencil_id'])
+      doc = JSON.parse(st['json'].to_s)
+      kids = f['elements'].map { |id| lib[:new_element].call('text', f['model_type'], 'text' => specs.find { |s| s['id'] == id }['text']) }
+      kids += f['fields'].map do |name|
+        a = attrs_by_name[[f['model_type'], name]] || {}
+        lib[:new_element].call('field', f['model_type'], 'name' => name, 'label' => a['description'] || name)
+      end
+      doc['elements'] = Array(doc['elements']) + [lib[:new_element].call('group', f['model_type'], 'label' => group_label, 'elements' => kids)]
+      lib[:write_stencil].call(st, JSON.generate(doc, ascii_only: true))
+      (f['elements'] + f['fields'].map { |n| "field #{n}" }).each { |what| log['added to form (bottom; move it where it belongs)'] << "#{what} @ #{f['where']}" }
+    end
+  end
+
   { 'mode' => "from #{lib[:repo_label].call(model)}" }
 end
 
-lib[:run_with_snapshots].call(model, 'Install', 'install_results', lib[:snapshot_targets].call(bundle), save_now, install)
+# Worked out before anything changes, so the forms it adds to are in the snapshot
+plan = lib[:placement_plan].call(model, bundle['scope'])
+targets = lib[:snapshot_targets].call(bundle, plan['forms'].map { |f| f['stencil_id'] })
+lib[:run_with_snapshots].call(model, 'Install', 'install_results', targets, save_now, install)

@@ -19,6 +19,7 @@ require 'cgi'
 require 'time'
 require 'zlib'
 require 'base64'
+require 'securerandom'
 
 lib = {}
 
@@ -265,6 +266,85 @@ lib[:locate_elements] = lambda do |scope, include_text = false|
   found
 end
 
+# The form stencil a theme shows (compiled first, then newest)
+lib[:theme_form] = lambda do |theme|
+  Stencil.where(model_type: theme.model_type, model_theme_id: theme.id, deleted_at: nil).to_a
+         .select { |st| lib[:form_types].call(st).include?('form') }
+         .max_by { |st| [st.compiled ? 1 : 0, st.updated_at.to_i] }
+end
+
+# The first GenericTemplate stencil on a profile's dashboard: UserProfile ->
+# first dashboard template -> its cards -> the first /generic_templates/{id}.
+lib[:dashboard_template_stencil] = lambda do |profile|
+  ids = (profile.dashboard_template_ids rescue nil)
+  ids = (JSON.parse(ids) rescue []) if ids.is_a?(String)
+  dt = Array(ids).first && (DashboardTemplate.find_by(id: Array(ids).first) rescue nil)
+  data = dt && (dt.data.is_a?(String) ? (JSON.parse(dt.data) rescue {}) : dt.data)
+  next nil unless data.is_a?(Hash)
+  id = Array(data['cards']).map { |c| c.is_a?(Hash) && c['detail'].is_a?(Hash) ? c['detail']['url'].to_s[%r{generic_templates/(\d+)}, 1] : nil }.compact.first
+  id && Stencil.where(id: id.to_i, model_type: 'GenericTemplate', deleted_at: nil).first
+end
+
+# What Install adds to which forms: one entry per form, with the PDC element
+# ids (and native fields) it lacks, plus notes for choices that are missing.
+lib[:placement_plan] = lambda do |deploy_model, scope|
+  rules = scope['placement'] || {}
+  located = lib[:locate_elements].call(scope, false)
+  on_form = lambda { |stencil_id| located.select { |_, locs| locs.any? { |l| l['stencil_id'] == stencil_id } }.keys }
+  plan = []
+  notes = []
+  add = lambda do |stencil, set, why|
+    missing = set - on_form.call(stencil.id)
+    fields = Array(scope['required_stencil_fields']).select do |req|
+      req['model_type'] == stencil.model_type && set.include?(req['with_element']) &&
+        lib[:stencil_elements].call(stencil['json']).none? { |e| e['element']['element_type'] == 'attribute' && e['element']['name'] == req['attribute'] }
+    end.map { |req| req['attribute'] }
+    plan << { 'stencil_id' => stencil.id, 'model_type' => stencil.model_type, 'where' => "stencil #{stencil.id} (#{stencil.name.to_s.strip}, #{why})",
+              'elements' => missing, 'fields' => fields }
+  end
+  interactive = lib[:selected_themes].call(deploy_model, :pdc_themes)
+  readonly = lib[:selected_themes].call(deploy_model, :pdc_readonly_themes)
+  notes << 'no PDC Themes chosen, so no grant form gets the PDC elements' if interactive.empty? && readonly.empty?
+  interactive.each do |th|
+    st = lib[:theme_form].call(th)
+    st ? add.call(st, rules['interactive'] || [], "theme #{th.name}") : notes << "theme #{th.name} has no form"
+  end
+  (readonly - interactive).each do |th|
+    st = lib[:theme_form].call(th)
+    st ? add.call(st, rules['readonly'] || [], "read-only theme #{th.name}") : notes << "theme #{th.name} has no form"
+  end
+  (readonly & interactive).each { |th| notes << "theme #{th.name} is in both theme lists; it gets the interactive set" }
+  profile = lib[:selected_profile].call(deploy_model, :pdc_grantee_profile)
+  if profile.nil?
+    notes << 'no PDC Grantee Profile chosen, so the OAuth callback page has no home'
+  elsif (gt = lib[:dashboard_template_stencil].call(profile))
+    add.call(gt, rules['dashboard'] || [], "#{profile.name} dashboard")
+  else
+    notes << "#{profile.name}'s dashboard has no GenericTemplate card"
+  end
+  { 'forms' => plan, 'notes' => notes }
+end
+
+# Stencil elements Install adds: text elements and native fields, in a group
+lib[:new_element] = lambda do |kind, model_type, opts|
+  vis = { 'visible_show' => true, 'visible_form' => true, 'advanced_filter' => '1',
+          'advanced_query' => JSON.generate('group_type' => 'and', 'conditions' => [], 'relationship_filter_model_type' => model_type),
+          'advanced_sort' => '[]' }
+  base = { 'visibility' => vis, 'styling' => { 'alignment' => 'left' }, 'uid' => SecureRandom.uuid }
+  case kind
+  when 'text'
+    base.merge('element_type' => 'text', 'name' => 'text', 'config' => { 'text' => opts['text'], 'strip_html' => '0', 'allow_script' => true })
+  when 'field'
+    base.merge('element_type' => 'attribute', 'name' => opts['name'], 'label' => opts['label'],
+               'config' => { 'label' => opts['label'], 'required' => '0' })
+  when 'group'
+    base.merge('element_type' => 'group', 'name' => 'group', 'label' => opts['label'],
+               'config' => { 'label' => opts['label'], 'collapsible' => '0', 'default_open' => '0', 'disable_lazy_load' => '0',
+                             'hide_label' => '0', 'reveal_if_type' => 'show', 'show_in_toc' => '0' },
+               'elements' => opts['elements'])
+  end
+end
+
 # Native fields the PDC code needs on the same stencil as a PDC element (scope
 # "required_stencil_fields"): one entry per stencil holding that element,
 # saying whether the field is on it.
@@ -474,25 +554,46 @@ short = lambda do |v|
   s.length > 160 ? "#{s[0, 160]}..." : s
 end
 
+# The option values (record ids, as strings) chosen in one of the deploy
+# model's dropdowns. Fluxx may hand back option rows, option ids, values or
+# labels, so each is matched against that field's options.
+lib[:selected_values] = lambda do |deploy_model, attr|
+  next [] unless deploy_model.respond_to?(attr)
+  raw = Array(deploy_model.public_send(attr)).flatten.compact
+  field = ModelAttribute.where(model_type: deploy_model.class.name, name: attr.to_s, deleted_at: nil).first
+  options = field ? ModelAttributeValue.where(model_attribute_id: field.id).to_a : []
+  raw.map do |v|
+    next v.value.to_s if v.respond_to?(:value) && v.respond_to?(:model_attribute_id)
+    s = v.to_s.strip
+    next nil if s.empty?
+    hit = options.find { |o| o.id.to_s == s } || options.find { |o| o.value.to_s == s } || options.find { |o| o.description.to_s == s }
+    hit ? hit.value.to_s : s
+  end.compact.uniq
+end
+
+lib[:selected_role] = lambda do |deploy_model, attr = :pdc_event_role|
+  v = lib[:selected_values].call(deploy_model, attr).first
+  v && (Role.where(id: v.to_i, deleted_at: nil).first || Role.where(name: v, deleted_at: nil).first)
+end
+
 lib[:selected_role_name] = lambda do |deploy_model|
-  next nil unless deploy_model.respond_to?(:pdc_event_role)
-  v = deploy_model.pdc_event_role
-  v = v.first if v.is_a?(Array)
-  next nil if v.blank?
-  r = Role.find_by(id: v.to_s.to_i) if v.to_s =~ /\A\d+\z/
-  r ||= Role.find_by(name: v.to_s)
-  r ? r.name : v.to_s
+  role = lib[:selected_role].call(deploy_model)
+  role ? role.name : lib[:selected_values].call(deploy_model, :pdc_event_role).first
+end
+
+lib[:selected_profile] = lambda do |deploy_model, attr|
+  v = lib[:selected_values].call(deploy_model, attr).first
+  v && (UserProfile.find_by(id: v.to_i) || UserProfile.find_by(name: v))
 end
 
 # The deploy model's dropdown choice for a UserProfile, as a profile name.
 lib[:selected_profile_name] = lambda do |deploy_model, attr|
-  next nil unless deploy_model.respond_to?(attr)
-  v = deploy_model.public_send(attr)
-  v = v.first if v.is_a?(Array)
-  next nil if v.blank?
-  p = UserProfile.find_by(id: v.to_s.to_i) if v.to_s =~ /\A\d+\z/
-  p ||= UserProfile.find_by(name: v.to_s)
-  p ? p.name : v.to_s
+  p = lib[:selected_profile].call(deploy_model, attr)
+  p ? p.name : lib[:selected_values].call(deploy_model, attr).first
+end
+
+lib[:selected_themes] = lambda do |deploy_model, attr|
+  lib[:selected_values].call(deploy_model, attr).map { |v| ModelTheme.where(id: v.to_i, deleted_at: nil).first }.compact
 end
 
 # Returns report rows: { kind, key, status, detail }.

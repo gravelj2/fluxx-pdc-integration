@@ -8,6 +8,9 @@
 #   pdc_staff_profile    <- UserProfile: staff who may edit PDC fields that the
 #                           Consent stencil restricts (TRN: Employee with
 #                           Permissions Plus)
+#   installer_role       <- Role: who may click the deploy model's own buttons
+#   pdc_themes / pdc_readonly_themes <- GrantRequest themes whose form gets
+#                           the PDC elements (interactive / read-only set)
 # Profile names differ per org, so the admin chooses; profiles whose
 # categories include "grantee" are labelled to help.
 # Options for deleted records are retired, not removed. Safe to re-run. Only
@@ -56,5 +59,7 @@ profiles = live_profiles.order(:name).map do |p|
   [p.id, cats.include?('grantee') ? "#{p.name} (grantee)" : p.name]
 end
 
-[sync.call('pdc_event_role', roles), sync.call('pdc_grantee_profile', profiles),
- sync.call('pdc_staff_profile', profiles)].join('; ')
+themes = ModelTheme.where(model_type: 'GrantRequest', deleted_at: nil).order(:name).map { |t| [t.id, t.name] }
+
+[sync.call('installer_role', roles), sync.call('pdc_event_role', roles), sync.call('pdc_grantee_profile', profiles),
+ sync.call('pdc_staff_profile', profiles), sync.call('pdc_themes', themes), sync.call('pdc_readonly_themes', themes)].join('; ')

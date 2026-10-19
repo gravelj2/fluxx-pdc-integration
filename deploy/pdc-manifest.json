@@ -81,6 +81,24 @@
       "allow_script": true,
       "strip_html": false
     },
+    "_placement": "Where Install adds PDC elements that aren't on a form yet, in this order, inside a group with group_label at the bottom of the form: interactive to the form of each theme chosen in PDC Themes, readonly to each chosen in PDC Read-only Themes, dashboard to the first GenericTemplate on the PDC Grantee Profile's dashboard. Admins move them afterwards.",
+    "placement": {
+      "group_label": "Contribute to the Philanthropy Data Commons (PDC)",
+      "interactive": [
+        "portal-style",
+        "fluxx-card-api",
+        "oauth-client",
+        "stencil-container",
+        "floating-panel"
+      ],
+      "readonly": [
+        "portal-style",
+        "stencil-container-readonly"
+      ],
+      "dashboard": [
+        "oauth-callback"
+      ]
+    },
     "stencil_elements": [
       {
         "id": "portal-style",

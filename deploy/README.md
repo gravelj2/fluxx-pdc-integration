@@ -23,18 +23,22 @@ The deploy model stays in place after install. To remove PDC completely, click
 1. **Create the deploy model**: any name (TRN uses `PDC Install Config`). Fluxx creates
    its theme, workflow and blank stencils automatically.
 2. **Paste `installer/theme/Before New.rb`** into that theme's Before New block. Check
-   the three settings at the top: `repo_url`, `repo_ref` (pin a release tag or commit SHA
-   in production), and `button_role`, the exact name of the role that may click the
-   deploy model's buttons in this Fluxx.
-3. **Create the first record.** Before New downloads `PDC Bootstrap Deploy Model` and
-   runs it. That builds the rest of the deploy model from `installer/deploy-model.json`:
-   its fields, installer methods, states, buttons and form. What it did shows on the
-   form as **Installer update**.
-   - Only one deploy record may exist. A second one deletes itself; Fluxx shows an error
-     page.
+   `repo_url` and `repo_ref` at the top (pin a release tag or commit SHA in production).
+3. **Click New.** As the form opens, Before New downloads `PDC Bootstrap Deploy Model`
+   and runs it. That builds the deploy model from `installer/deploy-model.json`: its
+   fields and dropdowns, the Snapshot document type, installer methods, states, form,
+   and the theme's After Create block.
    - The bootstrap uses `model.class`, so the model's name doesn't matter.
-4. Later, **Update Installer** re-runs the bootstrap against `repo_ref`, replacing the
-   deploy model's own methods and form with the repo copy.
+   - Re-running is safe at every level: each piece is looked up first and only
+     created if it doesn't exist.
+4. **Pick the Installer Role** (required: who may use the deploy model's buttons) and
+   save. After Create runs the bootstrap again, which creates the buttons with that
+   role. What it did shows on the form as **Installer update**.
+   - Only one deploy record may exist. A second one deletes itself; Fluxx shows an
+     error page.
+5. Later, **Update Installer** re-runs the bootstrap against `repo_ref`, replacing the
+   deploy model's own methods and form with the repo copy. Changing the Installer Role
+   and clicking Update Installer moves the buttons to the new role.
 
 ## Using it
 
@@ -99,19 +103,26 @@ Restore Previous follows `previous_configuration`. If a snapshot doesn't read ba
 intact, the action stops with nothing changed. The snapshot documents belong to the deploy record and go with it if it's deleted, so
 download the last snapshot first if you may need it.
 
-What Install and Uninstall can't do yet:
-- Install doesn't add or move PDC elements on forms. It reports a missing one, and
-  after an Uninstall, **Restore Previous** is how to put them back. A run that changes
-  nothing doesn't replace what Restore Previous goes back to, but any run that does
-  change something does, so restore before running anything else.
+Where Install adds what's missing:
+- **PDC elements** go in a PDC group at the bottom of the form of each theme chosen in
+  **PDC Themes** (the interactive set, plus the `pdc_account_exists` field it reads) and
+  **PDC Read-only Themes** (the read-only set). The OAuth callback goes at the bottom of
+  the first GenericTemplate on the **PDC Grantee Profile**'s dashboard. Move them where
+  they belong afterwards; Install finds them by their markers wherever they are.
+- **The `###PDC_CODE###` block** goes at the top of GrantRequest's `granted` hook, so it
+  always runs.
 - While any PDC model is missing, Install touches only the PDC models that exist:
   GrantRequest's PDC hooks call into all three, so they wait.
-- Restore Previous leaves alone anything someone changed, created or re-linked after
-  the last action, and lists it for review. Forms are compared whole: any edit to a form
-  since then, PDC-related or not, means that form isn't restored.
-- Install doesn't add a missing `###PDC_CODE###` block to the `granted` hook; it only
-  updates one that's there.
-- Neither creates or deletes models, profile permissions, or the models' own forms.
+
+What Install doesn't do yet: create the three PDC models (with their themes, workflows
+and forms) or the Consent profile permissions.
+
+About Restore Previous:
+- A run that changes nothing doesn't replace what Restore Previous goes back to, but any
+  run that does change something does, so restore before running anything else.
+- It leaves alone anything someone changed, created or re-linked after the last action,
+  and lists it for review. Forms are compared whole: any edit to a form since then,
+  PDC-related or not, means that form isn't restored.
 
 ### The deploy model's form
 

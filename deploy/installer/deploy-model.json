@@ -4,9 +4,12 @@
   "attributes": [
     { "name": "repo_url",          "description": "Repo URL",          "attribute_type": "string" },
     { "name": "repo_ref",          "description": "Repo Ref",          "attribute_type": "string" },
+    { "name": "installer_role",    "description": "Installer Role",    "attribute_type": "multi_value" },
     { "name": "pdc_event_role",    "description": "PDC Event Role",    "attribute_type": "multi_value" },
     { "name": "pdc_grantee_profile", "description": "PDC Grantee Profile", "attribute_type": "multi_value" },
     { "name": "pdc_staff_profile",   "description": "PDC Staff Profile",   "attribute_type": "multi_value" },
+    { "name": "pdc_themes",          "description": "PDC Themes",          "attribute_type": "multi_value", "multi_allowed": true },
+    { "name": "pdc_readonly_themes", "description": "PDC Read-only Themes", "attribute_type": "multi_value", "multi_allowed": true },
     { "name": "validate_results",  "description": "Validate Results",  "attribute_type": "text" },
     { "name": "install_results",   "description": "Install Results",   "attribute_type": "text" },
     { "name": "uninstall_results", "description": "Uninstall Results", "attribute_type": "text" },
@@ -47,8 +50,8 @@
 
   "stencil_layout": "deploy/installer/stencil/layout.json",
 
-  "_button_role": "Fallback only: Before New's button_role wins on the first run, and Update Installer keeps the role the buttons already use.",
-  "button_role": "Admin",
+  "_button_role_field": "The deploy model's buttons get the role chosen in this required field (on the first save, After Create creates them).",
+  "button_role_field": "installer_role",
   "events": [
     { "button_name": "Validate",          "to_state": "validate",         "from_states": ["new"] },
     { "button_name": "Install",           "to_state": "install",          "from_states": ["new"] },

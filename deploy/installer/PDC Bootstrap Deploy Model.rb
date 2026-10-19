@@ -6,8 +6,9 @@
 # Fluxx created). Runs on whatever model type it's attached to
 # (model.class), so the deploy model's name doesn't matter.
 #
-# Called by the pasted Before New on the first record, and later by the
-# "Update Installer" button. Safe to re-run: missing pieces are created, and
+# Called by the pasted Before New when the first New form opens, by After
+# Create when that record is saved (to create the buttons with the chosen
+# Installer Role), and later by the "Update Installer" button. Safe to re-run: missing pieces are created, and
 # changed method/state bodies and the form are replaced with the repo copy
 # (all of it lives in the repo, so nothing here needs a backup).
 #
@@ -81,7 +82,7 @@ result =
         log << "attribute #{a['name']}: exists"
       else
         ModelAttribute.create!(model_type: mt, name: a['name'], description: a['description'],
-                               attribute_type: a['attribute_type'], multi_allowed: false)
+                               attribute_type: a['attribute_type'], multi_allowed: a['multi_allowed'] ? true : false)
         log << "attribute #{a['name']}: created"
       end
     end
@@ -186,7 +187,7 @@ result =
         out
       elsif el['field']
         raise "layout field #{el['field']} is not an attribute on #{mt}" unless attr_types.key?(el['field'])
-        config = { 'label' => el['label'], 'required' => '0' }
+        config = { 'label' => el['label'], 'required' => el['required'] ? '1' : '0' }
         config['show_as_radio_buttons'] = '0' if attr_types[el['field']] == 'multi_value'
         config.merge!('allow_rich_text' => '0', 'trackable' => '0', 'trackable_workflow' => '0') if attr_types[el['field']] == 'text'
         vis = visibility.call
@@ -234,14 +235,15 @@ result =
     theme = ModelTheme.where(model_type: mt, deleted_at: nil).order(:id).first
     workflow = theme && MachineWorkflow.where(model_theme_id: theme.id, deleted_at: nil).first
     raise "No workflow for #{mt}'s theme; Fluxx normally creates one with the model" if workflow.nil?
-    # Role from Before New on the first run; on Update Installer, the role the
-    # existing buttons use; else deploy-model.json's default
-    role_name = handoff['button_role']
-    role = role_name.present? ? Role.where(name: role_name, deleted_at: nil).first : nil
-    role ||= Role.where(id: MachineEventRole.where(machine_event_id: MachineEvent.where(machine_workflow_id: workflow.id, deleted_at: nil).select(:id)).select(:role_id)).first
-    role ||= Role.where(name: spec['button_role'], deleted_at: nil).first
+    # The role chosen in the required Installer Role field. When the first New
+    # form opens nothing is chosen yet, so the buttons are created by After
+    # Create once the record is saved. Without a choice, the role the existing
+    # buttons already use is kept.
+    chosen = (model.dyn_invoke_for(:"PDC Installer Lib")[:selected_role].call(model, spec['button_role_field'].to_sym) rescue nil)
+    role = chosen || Role.where(id: MachineEventRole.where(machine_event_id: MachineEvent.where(machine_workflow_id: workflow.id, deleted_at: nil).select(:id)).select(:role_id)).first
     if role.nil?
-      log << "button role '#{role_name || spec['button_role']}': not found (no buttons created; set button_role in Before New to a role in this Fluxx, then delete this record and create a new one)"
+      log << (model.new_record? ? "buttons: waiting (they're created when this record is saved with an Installer Role)" :
+                                  "buttons: not created (choose an Installer Role, save, then click Update Installer or create the buttons' role in the workflow editor)")
     end
     filter = JSON.generate([
       { 'name' => 'advanced_query', 'value' => JSON.generate('group_type' => 'and', 'conditions' => [], 'relationship_filter_model_type' => mt) },
@@ -253,9 +255,11 @@ result =
       next if role.nil? && !MachineEvent.where(machine_workflow_id: workflow.id, button_name: e['button_name'], deleted_at: nil).exists?
       existing = MachineEvent.where(machine_workflow_id: workflow.id, button_name: e['button_name'], deleted_at: nil).first
       if existing
-        if role && !MachineEventRole.where(machine_event_id: existing.id).exists?
+        have = MachineEventRole.where(machine_event_id: existing.id).pluck(:role_id)
+        if role && (have.empty? || (chosen && have != [chosen.id]))
+          MachineEventRole.where(machine_event_id: existing.id).destroy_all
           MachineEventRole.create!(machine_event_id: existing.id, role_id: role.id)
-          log << "button #{e['button_name']}: role added"
+          log << "button #{e['button_name']}: role set to #{role.name}"
         else
           log << "button #{e['button_name']}: exists"
         end
@@ -274,6 +278,18 @@ result =
         log << "button #{e['button_name']}: created"
       rescue => err
         log << "button #{e['button_name']}: not created (#{err.class}: #{err.message})"
+      end
+    end
+
+    # The theme's After Create block finishes setup on the first save
+    if theme
+      after_create = fetch.call('deploy/installer/theme/After Create.rb')
+      if same.call(theme.unsafe_after_create_block, after_create)
+        log << "theme After Create: up to date"
+      else
+        theme.unsafe_after_create_block = after_create
+        theme.save!
+        log << "theme After Create: updated"
       end
     end
 
@@ -305,7 +321,7 @@ entries = log.map do |line|
            when 'created' then 'created'
            when nil then (key = line.to_s; 'note')
            when /\Anot (found|created)/ then status
-           when /updated|overwritten|role added|starts in/ then 'overwrote'
+           when /updated|overwritten|role set|starts in/ then 'overwrote'
            else 'note'
            end
   { 'status' => status, 'key' => key }
@@ -320,4 +336,12 @@ record =
       'groups' => [{ 'label' => 'log', 'tone' => 'info', 'items' => log.map { |l| { 'key' => l.to_s } } }] }
   end
 model.installer_results = JSON.generate(record) if model.respond_to?(:installer_results=)
+# From After Create the record is already saved, so save the results
+if handoff['phase'] == 'after_create' && model.persisted?
+  begin
+    model.save!
+  rescue => e
+    nil
+  end
+end
 JSON.generate(record)

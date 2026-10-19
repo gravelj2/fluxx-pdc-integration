@@ -3,11 +3,14 @@
 
   "elements": [
     { "group": "Settings", "elements": [
+      { "field": "installer_role",      "label": "Installer Role (who can use these buttons)", "required": true },
       { "field": "repo_url",            "label": "Repo URL" },
       { "field": "repo_ref",            "label": "Repo Ref (branch or tag)" },
       { "field": "pdc_event_role",      "label": "Role that can use PDC Integration Map buttons" },
       { "field": "pdc_grantee_profile", "label": "Grantee profile" },
-      { "field": "pdc_staff_profile",   "label": "Staff profile" }
+      { "field": "pdc_staff_profile",   "label": "Staff profile" },
+      { "field": "pdc_themes",          "label": "PDC Themes (grant forms that get the PDC elements)" },
+      { "field": "pdc_readonly_themes", "label": "PDC Read-only Themes (grant forms that get the read-only PDC view)" }
     ] },
     { "raw": { "element_type": "spacer", "name": "spacer", "config": { "number_of_lines": "1" }, "visibility": { "visible_show": true, "visible_form": true, "advanced_filter": "1", "advanced_query": "{\"group_type\":\"and\",\"conditions\":[],\"relationship_filter_model_type\":\"MacModelTypeDynPdcInstallConfig\"}", "advanced_sort": "[]" }, "styling": { "alignment": "left" } } },
     { "group": "Results", "elements": [

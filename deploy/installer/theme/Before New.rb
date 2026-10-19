@@ -1,8 +1,11 @@
 # PDC deploy model: Before New
 #
 # The ONLY thing an admin pastes by hand (into the deploy model theme's
-# Before New block). On the first record it downloads PDC Bootstrap Deploy
-# Model from the repo and runs it, which builds the rest of the deploy model.
+# Before New block). When the first New form opens, it downloads PDC Bootstrap
+# Deploy Model from the repo and runs it: that builds the deploy model's
+# fields, dropdowns, methods, states and form, and writes the theme's After
+# Create block. The admin picks the required Installer Role and saves; After
+# Create then creates the buttons with that role.
 # Only one deploy record may exist: a second one deletes itself (Fluxx shows
 # an error page; raising an error here does NOT stop the save).
 #
@@ -16,8 +19,6 @@ require 'cgi'
 
 repo_url = "https://github.com/macfound/fluxx-pdc-integration"
 repo_ref = "main"
-# Role allowed to click the deploy model's buttons (exact name in this Fluxx)
-button_role = "Admin"
 
 if model.class.where(deleted_at: nil).where.not(id: model.id).exists?
   model.delete
@@ -43,7 +44,7 @@ else
       else
         ModelMethod.create!(model_type: model.class.name, method_type: 'method', name: 'PDC Bootstrap Deploy Model', unsafe_dyn_method: body)
       end
-      model.instance_variable_set(:@pdc_bootstrap, { 'repo_url' => repo_url, 'repo_ref' => repo_ref, 'button_role' => button_role })
+      model.instance_variable_set(:@pdc_bootstrap, { 'repo_url' => repo_url, 'repo_ref' => repo_ref })
       model.dyn_invoke_for(:"PDC Bootstrap Deploy Model")
     else
       fail_with.call("PDC bootstrap: could not fetch #{path} at #{repo_ref} (HTTP #{resp.code})")
