@@ -14,9 +14,6 @@
 #       Fails if any manifest hash is stale, a referenced file is missing,
 #       a data-explorer file doesn't match its own marker/fingerprints, or the
 #       install bundle is out of date.
-#   ruby deploy/tools/pdc_manifest.rb report FILE
-#       Prints a validation report saved from Fluxx (one-off validate output
-#       or a validation_report field), grouped by status.
 #
 # The normalize/hash rules MUST stay identical to deploy/installer/PDC
 # Installer Lib.rb, or every body will report DIFFERS in Fluxx.
@@ -350,20 +347,6 @@ def check
   end
 end
 
-def report(path)
-  r = read_export(path)
-  abort "Validation failed in Fluxx: #{r['error']}" if r['error']
-  puts "Validated #{r['validated_at']} on #{r['deploy_model']} against #{r['ref']}"
-  puts "Summary: " + r['summary'].sort.map { |k, v| "#{k} #{v}" }.join(', ')
-  Array(r['warnings']).each { |w| puts "Warning: #{w}" }
-  r['problems'].group_by { |p| p['status'] }.sort.each do |status, rows|
-    puts "\n#{status} (#{rows.size})"
-    rows.sort_by { |p| [p['kind'], p['key']] }.each do |p|
-      puts "  #{p['kind']}: #{p['key']}"
-      Array(p['detail']).each { |d| puts "      #{d}" }
-    end
-  end
-end
 
 case ARGV[0]
 when 'unpack'
@@ -380,9 +363,6 @@ when 'rehash'
   puts "Rehashed #{MANIFEST_PATH} and wrote #{BUNDLE_PATH}"
 when 'check'
   check
-when 'report'
-  abort 'usage: pdc_manifest.rb report FILE' unless ARGV[1]
-  report(ARGV[1])
 else
   abort File.read(__FILE__).lines.drop(1).take_while { |l| l.start_with?('#') }.join
 end

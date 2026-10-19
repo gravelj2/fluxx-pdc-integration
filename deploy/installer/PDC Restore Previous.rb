@@ -9,6 +9,8 @@
 #   - a component that didn't exist then is soft-deleted
 #   - forms that held PDC elements get their saved JSON back
 #   - buttons get their target, from-states and roles back
+# Anything changed by someone else since the last action (it no longer
+# matches current_configuration's snapshot) is left alone and listed.
 # Needs no repo access. Restore takes its own snapshot first, so clicking it
 # again undoes the restore. Results go to restore_results.
 
@@ -18,18 +20,47 @@ require 'time'
 lib = model.dyn_invoke_for(:"PDC Installer Lib") unless defined?(lib) && lib
 save_now = defined?(pdc_one_off) && pdc_one_off ? true : false
 
-previous = (lib[:read_snapshot].call(model, 'previous_configuration') rescue nil)
+read_error = nil
+previous = begin
+  lib[:read_snapshot].call(model, 'previous_configuration')
+rescue => e
+  read_error = e.message
+  nil
+end
+# The after-snapshot of the last action: anything that differs from it now was
+# changed by someone since, and isn't overwritten.
+latest = (lib[:read_snapshot].call(model, 'current_configuration') rescue nil)
+latest_by_key = latest ? latest['records'].each_with_object({}) { |r, h| h[r['key']] = r } : {}
 targets = previous ? previous['records'].map { |r| r.slice('table', 'key', 'find', 'secret', 'cols_only', 'only_cols') } : []
 
 restore = lambda do |log|
-  raise 'There is no previous configuration to restore yet' if previous.nil?
+  raise(read_error || 'There is no previous configuration to restore yet') if previous.nil?
   now = Time.now
+  # True when the live record no longer matches the last action's
+  # after-snapshot (someone edited it since).
+  changed_since = lambda do |r|
+    after = latest_by_key[r['key']]
+    next false if after.nil?
+    live = lib[:snapshot_find].call(r)
+    next !after['id'].nil? if live.nil?
+    next true if after['id'] && live.id != after['id']
+    live_deleted = live.has_attribute?(:deleted_at) && live.deleted_at.present?
+    next true if after['id'] && live_deleted != (after['deleted'] ? true : false)
+    (after['cols'] || {}).any? { |c, v| live[c] != v }
+  end
   # Records in dependency order, so fields exist before their options and
-  # states before the buttons that point at them.
-  previous['records'].each do |r|
+  # states before the buttons that point at them. Removals of things that
+  # didn't exist before run afterwards in reverse, so options go before their
+  # field.
+  removals = previous['records'].select { |r| r['id'].nil? && r['table'] != 'Stencil' && !r['cols_only'] }
+  (previous['records'] - removals + removals.reverse).each do |r|
     key = r['key']
     klass = lib[:snapshot_class].call(r['table'])
     cols = r['cols'] || {}
+    if changed_since.call(r)
+      log['review: changed since the last action, left alone'] << key
+      next
+    end
 
     if r['table'] == 'Stencil'
       st = Stencil.find_by(id: r['find']['id'])
@@ -38,8 +69,7 @@ restore = lambda do |log|
       elsif st['json'].to_s == cols['json'].to_s
         log['ok'] << key
       else
-        st['json'] = cols['json']
-        st.save!
+        lib[:write_stencil].call(st, cols['json'])
         log['restored form'] << key
       end
       next
@@ -92,6 +122,7 @@ restore = lambda do |log|
         next
       end
       attrs = scope.where_values_hash.merge(cols)
+      attrs['to_state_id'] = r['links']['to_state_id'] if r['table'] == 'MachineEvent' && r['links']
       rec = klass.new(attrs)
       rec.save!
       changed = ['recreated']

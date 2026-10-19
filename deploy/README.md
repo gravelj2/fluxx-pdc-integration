@@ -38,7 +38,8 @@ The deploy model stays in place after install. To remove PDC completely, click
 
 ## Using it
 
-1. Create a deploy record. Before New fills in `repo_url`/`repo_ref` and the role list.
+1. Open the deploy record that setup created. `repo_url`/`repo_ref` and the dropdowns
+   are already filled in; Refresh Lists reloads the dropdowns later.
 2. Pick the three instance-specific choices. Names differ per org, so nothing is guessed:
    - `pdc_event_role`: the role that may click the PDC Integration Map's buttons (TRN: Admin)
    - `pdc_grantee_profile`: grantees, who view and update their own PDC Consent records (TRN: Grantee)
@@ -94,12 +95,18 @@ Each snapshot is a text document of type **Snapshot** on the deploy record, name
 (the GrantRequest forms make each one 1–3 MB). `previous_configuration` and
 `current_configuration` hold just a pointer to the latest before and after documents, and
 Restore Previous follows `previous_configuration`. If a snapshot doesn't read back
-intact, the action stops with nothing changed. Deleting the deploy model removes its
-documents, so download the last snapshot first if you may need it.
+intact, the action stops with nothing changed. The snapshot documents belong to the deploy record and go with it if it's deleted, so
+download the last snapshot first if you may need it.
 
 What Install and Uninstall can't do yet:
 - Install doesn't add or move PDC elements on forms. It reports a missing one, and
-  after an Uninstall, **Restore Previous** is how to put them back.
+  after an Uninstall, **Restore Previous** is how to put them back. A run that changes
+  nothing doesn't replace what Restore Previous goes back to, but any run that does
+  change something does, so restore before running anything else.
+- While any PDC model is missing, Install touches only the PDC models that exist:
+  GrantRequest's PDC hooks call into all three, so they wait.
+- Restore Previous leaves alone anything someone changed after the last action, and
+  lists it for review.
 - Install doesn't add a missing `###PDC_CODE###` block to the `granted` hook; it only
   updates one that's there.
 - Neither creates or deletes models, profile permissions, or the models' own forms.
@@ -132,7 +139,8 @@ The manifest is generated from a known-good instance, then the repo files become
 source of truth:
 
 ```bash
-# 1. In Fluxx, run PDC_Export_Components on the deploy record and save its output, e.g. export.json
+# 1. ruby deploy/tools/build_one_off_export.rb, paste DEV/one-off-export.rb into a temporary
+#    method on the deploy model, run it, and save the PDCEXPORT1 line it returns, e.g. export.json
 # 2. Write the bodies into the repo and regenerate the manifest:
 ruby deploy/tools/pdc_manifest.rb unpack export.json
 # 3. Review git diff, commit, push. Then Validate in Fluxx should be all MATCH.

@@ -5,7 +5,8 @@ described in [deploy/README.md](../deploy/README.md), then click **Install**. Fi
 contents here are the source of truth for what ends up in Fluxx.
 
 Install doesn't yet create the following, so on a new instance they are still set up
-by hand in the Fluxx admin UI (Validate reports each one as MISSING):
+by hand in the Fluxx admin UI (Validate reports them as MISSING, MARKER_NOT_FOUND or
+DIFFERS):
 - the three PDC models (Integration Map, Mapped Field, Consent) with their themes and
   workflows, their forms (`pdc-map/*/stencils/form.json` for reference), and the
   Consent profile permissions

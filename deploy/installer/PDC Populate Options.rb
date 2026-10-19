@@ -46,7 +46,8 @@ end
 roles = Role.where(deleted_at: nil).order(:name).map { |r| [r.id, r.name] }
 
 # categories is a string holding a JSON array, e.g. "[\"\",\"grantee\"]"
-profiles = UserProfile.order(:name).map do |p|
+live_profiles = UserProfile.column_names.include?('deleted_at') ? UserProfile.where(deleted_at: nil) : UserProfile.all
+profiles = live_profiles.order(:name).map do |p|
   cats = begin
     Array(JSON.parse(p.categories.to_s))
   rescue JSON::ParserError

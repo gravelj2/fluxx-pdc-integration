@@ -12,7 +12,7 @@
 # (all of it lives in the repo, so nothing here needs a backup).
 #
 # It never touches previous_configuration / current_configuration: those
-# hold snapshots of the PDC configuration itself, for Restore Previous.
+# point to the PDC configuration snapshots used by Restore Previous.
 # Returns, and stores in installer_results, what it did.
 
 require 'json'
@@ -68,6 +68,7 @@ result =
       raise "#{User.find_current_user rescue 'This user'} cannot save custom Ruby in Fluxx, which the PDC " \
             "installer needs. Ask a Fluxx admin with Ruby access to run this. (Fluxx said: #{ruby_denied})"
     end
+    raise "repo_ref #{repo_ref.inspect} isn't a branch, tag or commit name" unless repo_ref.to_s =~ %r{\A[\w.\-/]+\z} && !repo_ref.to_s.include?('..')
     spec = JSON.parse(fetch.call('deploy/installer/deploy-model.json'))
 
     # 1. Attributes
@@ -113,6 +114,8 @@ result =
     spec['states'].each_with_index do |s, i|
       hook = s['invokes'] ? "#{spec['state_hook_prefix']}\nmodel.dyn_invoke_for(:\"#{s['invokes']}\")".strip : nil
       st = MachineState.where(model_type: mt, name: s['name'], deleted_at: nil).first
+      # Fluxx may have created its own starting state under another name; use it
+      st ||= MachineState.where(model_type: mt, state_type: 'new', deleted_at: nil).order(:id).first if s['state_type'] == 'new'
       if st.nil?
         st = MachineState.create!(model_type: mt, name: s['name'], description: s['description'],
                                   state_type: s['state_type'], state_order: i + 1, allowed_roles: '[]',
@@ -127,47 +130,14 @@ result =
       end
       states[s['name']] = st
     end
-
-    # 4. Workflow buttons on the auto-created workflow
-    workflow = MachineWorkflow.where(model_type: mt, deleted_at: nil).first
-    raise "No workflow for #{mt}; Fluxx normally creates one with the model" if workflow.nil?
-    # Role from Before New on the first run; on Update Installer, the role the
-    # existing buttons use; else deploy-model.json's default
-    role_name = handoff['button_role']
-    role = role_name.present? ? Role.where(name: role_name, deleted_at: nil).first : nil
-    role ||= Role.where(id: MachineEventRole.where(machine_event_id: MachineEvent.where(machine_workflow_id: workflow.id, deleted_at: nil).select(:id)).select(:role_id)).first
-    role ||= Role.where(name: spec['button_role'], deleted_at: nil).first
-    if role.nil?
-      log << "button role '#{role_name || spec['button_role']}': not found (no one can use the buttons; set button_role in Before New to a role in this Fluxx, or add a role to each button in the workflow editor)"
-    end
-    filter = JSON.generate([
-      { 'name' => 'advanced_query', 'value' => JSON.generate('group_type' => 'and', 'conditions' => [], 'relationship_filter_model_type' => mt) },
-      { 'name' => 'advanced_sort', 'value' => '[]' },
-      { 'name' => 'type', 'value' => 'MachineModel' },
-      { 'name' => 'filter_type', 'value' => 'MachineModel' }
-    ])
-    spec['events'].each_with_index do |e, i|
-      existing = MachineEvent.where(machine_workflow_id: workflow.id, button_name: e['button_name'], deleted_at: nil).first
-      if existing
-        if role && !MachineEventRole.where(machine_event_id: existing.id).exists?
-          MachineEventRole.create!(machine_event_id: existing.id, role_id: role.id)
-          log << "button #{e['button_name']}: role added"
-        else
-          log << "button #{e['button_name']}: exists"
-        end
-        next
-      end
-      ev = MachineEvent.create!(machine_workflow_id: workflow.id, button_name: e['button_name'],
-                                to_state_id: states.fetch(e['to_state']).id, is_validation_suppressed: true,
-                                guard_strategy: 'none', filter: filter)
-      e['from_states'].each do |from|
-        MachineEventFromState.create!(machine_event_id: ev.id, from_state_id: states.fetch(from).id, button_order: i + 1)
-      end
-      MachineEventRole.create!(machine_event_id: ev.id, role_id: role.id) if role
-      log << "button #{e['button_name']}: created"
+    # The first record must start in the state the buttons appear on
+    start = states['new']
+    if start && model.new_record? && model.respond_to?(:state=) && model.state.to_s != start.name
+      model.state = start.name
+      log << "record: starts in state #{start.name}"
     end
 
-    # 5. The deploy model's own form: overwrite the stencil Fluxx created with
+    # 4. The deploy model's own form: overwrite the stencil Fluxx created with
     # the repo layout. This is the only installer step that edits it; the other
     # methods just write field values the layout renders.
     layout = JSON.parse(fetch.call(spec['stencil_layout']))
@@ -195,17 +165,21 @@ result =
         fresh = lambda do |node|
           case node
           when Hash
-            node.each_with_object({}) do |(k, v), h|
+            copied = node.each_with_object({}) do |(k, v), h|
               h[k] = if k == 'uid' then SecureRandom.uuid
                      elsif k == 'advanced_query' && v.is_a?(String) then v.gsub(/"relationship_filter_model_type":"[^"]*"/, %("relationship_filter_model_type":"#{mt}"))
                      else fresh.call(v)
                      end
             end
+            copied['uid'] ||= SecureRandom.uuid if copied.key?('element_type')
+            copied
           when Array then node.map { |v| fresh.call(v) }
           else node
           end
         end
-        fresh.call(el['raw'])
+        out = fresh.call(el['raw'])
+        out['uid'] ||= SecureRandom.uuid
+        out
       elsif el['field']
         raise "layout field #{el['field']} is not an attribute on #{mt}" unless attr_types.key?(el['field'])
         config = { 'label' => el['label'], 'required' => '0' }
@@ -221,7 +195,7 @@ result =
           'visibility' => visibility.call, 'styling' => { 'alignment' => 'left' }, 'uid' => SecureRandom.uuid }
       end
     end
-    new_doc = { 'elements' => layout['elements'].map { |el| build.call(el) } }
+    new_elements = layout['elements'].map { |el| build.call(el) }
     without_uids = nil
     without_uids = lambda do |node|
       case node
@@ -234,21 +208,82 @@ result =
     stencils = Stencil.where(model_type: mt, deleted_at: nil).to_a
     target = stencils.select { |st| form_types.call(st).include?('form') }.max_by { |st| [st.compiled ? 1 : 0, st.updated_at.to_i] }
     if target.nil?
-      log << "stencil: none found for #{mt} (#{stencils.size} without a form type); create the form in the GUI and click Update Installer"
+      log << "stencil: not found for #{mt} (#{stencils.size} without a form type); create the form in the GUI and click Update Installer"
     else
       old_doc = (JSON.parse(target['json'].to_s) rescue nil)
-      if old_doc && without_uids.call(old_doc) == without_uids.call(new_doc)
+      old_doc = {} unless old_doc.is_a?(Hash)
+      new_doc = old_doc.merge('elements' => new_elements)   # keep any other settings Fluxx stores
+      if without_uids.call(old_doc['elements']) == without_uids.call(new_elements)
         log << "stencil #{target.id}: up to date"
       else
-        target['json'] = JSON.generate(new_doc)
+        raw = JSON.generate(new_doc, ascii_only: true)
+        target['json'] = raw
         target.save!
+        raise "stencil #{target.id} did not save intact" unless Stencil.where(id: target.id).pluck(:json).first.to_s == raw
         log << "stencil #{target.id}: overwritten with the repo layout"
       end
       others = stencils.map(&:id) - [target.id]
       log << "stencil: left other #{mt} stencils alone (#{others.join(', ')})" unless others.empty?
     end
 
-    # 6. Record values and the instance-specific dropdowns
+    # 5. Workflow buttons on the workflow Fluxx created with the model's theme
+    theme = ModelTheme.where(model_type: mt, deleted_at: nil).order(:id).first
+    workflow = theme && MachineWorkflow.where(model_theme_id: theme.id, deleted_at: nil).first
+    raise "No workflow for #{mt}'s theme; Fluxx normally creates one with the model" if workflow.nil?
+    # Role from Before New on the first run; on Update Installer, the role the
+    # existing buttons use; else deploy-model.json's default
+    role_name = handoff['button_role']
+    role = role_name.present? ? Role.where(name: role_name, deleted_at: nil).first : nil
+    role ||= Role.where(id: MachineEventRole.where(machine_event_id: MachineEvent.where(machine_workflow_id: workflow.id, deleted_at: nil).select(:id)).select(:role_id)).first
+    role ||= Role.where(name: spec['button_role'], deleted_at: nil).first
+    if role.nil?
+      log << "button role '#{role_name || spec['button_role']}': not found (no buttons created; set button_role in Before New to a role in this Fluxx, then delete this record and create a new one)"
+    end
+    filter = JSON.generate([
+      { 'name' => 'advanced_query', 'value' => JSON.generate('group_type' => 'and', 'conditions' => [], 'relationship_filter_model_type' => mt) },
+      { 'name' => 'advanced_sort', 'value' => '[]' },
+      { 'name' => 'type', 'value' => 'MachineModel' },
+      { 'name' => 'filter_type', 'value' => 'MachineModel' }
+    ])
+    spec['events'].each_with_index do |e, i|
+      next if role.nil? && !MachineEvent.where(machine_workflow_id: workflow.id, button_name: e['button_name'], deleted_at: nil).exists?
+      existing = MachineEvent.where(machine_workflow_id: workflow.id, button_name: e['button_name'], deleted_at: nil).first
+      if existing
+        if role && !MachineEventRole.where(machine_event_id: existing.id).exists?
+          MachineEventRole.create!(machine_event_id: existing.id, role_id: role.id)
+          log << "button #{e['button_name']}: role added"
+        else
+          log << "button #{e['button_name']}: exists"
+        end
+        next
+      end
+      begin
+        ActiveRecord::Base.transaction(requires_new: true) do
+          ev = MachineEvent.create!(machine_workflow_id: workflow.id, button_name: e['button_name'],
+                                    to_state_id: states.fetch(e['to_state']).id, is_validation_suppressed: true,
+                                    guard_strategy: 'none', filter: filter)
+          e['from_states'].each do |from|
+            MachineEventFromState.create!(machine_event_id: ev.id, from_state_id: states.fetch(from).id, button_order: i + 1)
+          end
+          MachineEventRole.create!(machine_event_id: ev.id, role_id: role.id)
+        end
+        log << "button #{e['button_name']}: created"
+      rescue => err
+        log << "button #{e['button_name']}: not created (#{err.class}: #{err.message})"
+      end
+    end
+
+    # 6. Record values and the instance-specific dropdowns. The repo is also
+    # kept in a small method, because fields can't always be set on the very
+    # first record.
+    settings_body = "{ 'repo_url' => #{repo_url.to_s.inspect}, 'repo_ref' => #{repo_ref.to_s.inspect} }"
+    rs = ModelMethod.where(model_type: mt, name: 'PDC Repo Settings', deleted_at: nil).first
+    if rs.nil?
+      ModelMethod.create!(model_type: mt, method_type: 'method', name: 'PDC Repo Settings', unsafe_dyn_method: settings_body)
+    elsif rs.unsafe_dyn_method.to_s.strip != settings_body
+      rs.unsafe_dyn_method = settings_body
+      rs.save!
+    end
     model.repo_url = repo_url if model.respond_to?(:repo_url=) && model.repo_url.blank?
     model.repo_ref = repo_ref if model.respond_to?(:repo_ref=) && model.repo_ref.blank?
     log << model.dyn_invoke_for(:"PDC Populate Options").to_s
@@ -265,7 +300,9 @@ entries = log.map do |line|
            when 'exists', 'up to date' then 'ok'
            when 'created' then 'created'
            when nil then (key = line.to_s; 'note')
-           else status =~ /updated|overwritten/ ? 'overwrote' : status
+           when /\Anot (found|created)/ then status
+           when /updated|overwritten|role added|starts in/ then 'overwrote'
+           else 'note'
            end
   { 'status' => status, 'key' => key }
 end

@@ -8,7 +8,9 @@
 # updater: point repo_ref at another release and click Install.
 #
 # Never removes anything. Methods, states or buttons it doesn't recognize are
-# left alone: whoever built them owns them.
+# left alone: whoever built them owns them. While any PDC model is missing,
+# only the existing PDC models are touched (GrantRequest's PDC hooks need
+# all of them).
 #
 #   fields    restore/create fields and static dropdown options; a field
 #             whose type or settings differ is only reported (changing a field
@@ -17,7 +19,9 @@
 #   themes    Before New / After Create code
 #   states    restore/create/overwrite settings and hooks
 #   buttons   restore/create/overwrite target, from-states, guard, filter;
-#             a button with no role gets the PDC Event Role chosen here
+#             a button with no role gets the PDC Event Role chosen here (else
+#             the role the workflow's other buttons use); with neither, a
+#             missing button isn't created
 #   granted   the ###PDC_CODE### block in GrantRequest's granted hook
 #   elements  the text and settings of PDC stencil elements already on a
 #             form (missing elements are reported; Install doesn't add or
@@ -46,10 +50,25 @@ install = lambda do |log|
   # as an orphan, and the model is reported.
   owned = scope['owned_model_types'].keys
   present = MachineModelType.where(model_type: owned, deleted_at: nil).pluck(:model_type)
-  (owned - present).each { |mt| log['model missing (create it first; its pieces were skipped)'] << mt }
+  missing_models = owned - present
+  missing_models.each { |mt| log['model missing (create it first; its pieces were skipped)'] << mt }
   on_missing_model = lambda { |item| owned.include?(item['model_type']) && !present.include?(item['model_type']) }
   b = bundle.dup
   %w[attributes methods themes states events].each { |k| b[k] = bundle[k].reject { |x| on_missing_model.call(x) } }
+  # GrantRequest's PDC hooks call into the PDC models (e.g. creating a Consent
+  # record on save), so they would break GrantRequest saves without them. With
+  # any PDC model missing, nothing outside the PDC models is touched.
+  unless missing_models.empty?
+    gr_type = scope['grant_request']['model_type']
+    %w[attributes methods].each do |k|
+      held = b[k].select { |x| x['model_type'] == gr_type }
+      held.each { |x| log['waits for the PDC models'] << x['key'] }
+      b[k] = b[k] - held
+    end
+    b['shared_slices'].each { |x| log['waits for the PDC models'] << x['key'] }
+    b['shared_slices'] = []
+    b['stencil_elements'] = []
+  end
 
   # Columns whose value differs from what's wanted. Code compares normalized
   # text, so whitespace-only drift doesn't count.
@@ -191,12 +210,8 @@ install = lambda do |log|
         MachineEventFromState.where(machine_event_id: ev.id).destroy_all
         want_from.each { |id, order| MachineEventFromState.create!(machine_event_id: ev.id, from_state_id: id, button_order: order) }
       end
-      if MachineEventRole.where(machine_event_id: ev.id).empty?
-        if (role = pick_role.call(wf))
-          MachineEventRole.create!(machine_event_id: ev.id, role_id: role.id)
-        else
-          log['button has no role (choose PDC Event Role, then Install again)'] << e['key']
-        end
+      if MachineEventRole.where(machine_event_id: ev.id).empty? && (role = pick_role.call(wf))
+        MachineEventRole.create!(machine_event_id: ev.id, role_id: role.id)
       end
     end
     rel = MachineEvent.where(machine_workflow_id: wf.id, button_name: e['button_name'])
@@ -204,14 +219,23 @@ install = lambda do |log|
       have = MachineEventFromState.where(machine_event_id: live.id).map { |f| [f.from_state_id, f.button_order] }.sort
       extra = []
       extra << 'from_states' if have != want_from
-      extra << 'role' if MachineEventRole.where(machine_event_id: live.id).empty?
+      if MachineEventRole.where(machine_event_id: live.id).empty?
+        pick_role.call(wf) ? extra << 'role' : log['button has no role (choose PDC Event Role, then Install again)'] << e['key']
+      end
       reconcile.call(e['key'], live, want, extra, -> { set_links.call(live) })
       next
     end
+    # A button nobody can click isn't created; choose the role first.
+    if pick_role.call(wf).nil?
+      log['button not created: no role (choose PDC Event Role, then Install again)'] << e['key']
+      next
+    end
     rec, how = revive.call(rel, machine_workflow_id: wf.id, button_name: e['button_name'])
-    want.each { |c, v| rec[c] = v }
-    rec.save!
-    set_links.call(rec)
+    ActiveRecord::Base.transaction(requires_new: true) do
+      want.each { |c, v| rec[c] = v }
+      rec.save!
+      set_links.call(rec)
+    end
     log[how] << e['key']
   end
 
@@ -239,7 +263,7 @@ install = lambda do |log|
   # escaped the way Rails' to_json writes them.
   encodings = lambda do |str|
     plain = JSON.generate(str)[1..-2]
-    [plain, plain.gsub('&', '&').gsub('<', '<').gsub('>', '>')].uniq
+    [plain, plain.gsub('&', '\u0026').gsub('<', '\u003c').gsub('>', '\u003e')].uniq
   end
   specs.each { |s| log['element missing from every form (add by hand)'] << s['id'] if Array(located[s['id']]).empty? }
   by_stencil = Hash.new { |h, k| h[k] = [] }
@@ -286,17 +310,16 @@ install = lambda do |log|
         cfg['text'] = c['new']
         required_config.each { |k, want| cfg[k] = want ? true : '0' unless lib[:truthy].call(cfg[k]) == want }
       end
-      new_raw = JSON.generate(doc)
+      new_raw = JSON.generate(doc, ascii_only: true)
     end
     check = lib[:stencil_elements].call(new_raw).map { |e| lib[:element_text].call(e['element']) }
     missing = changes.reject { |c| check.include?(c['new']) }
     raise "stencil #{stencil_id}: verification failed for #{missing.map { |c| c['where'] }.join('; ')}; nothing saved" if missing.any?
-    st['json'] = new_raw
-    st.save!
+    lib[:write_stencil].call(st, new_raw)
     changes.each { |c| log['wrote element'] << c['where'] }
   end
 
-  { 'mode' => "from #{lib[:repo_ref].call(model)}" }
+  { 'mode' => "from #{lib[:repo_label].call(model)}" }
 end
 
 lib[:run_with_snapshots].call(model, 'Install', 'install_results', lib[:snapshot_targets].call(bundle), save_now, install)

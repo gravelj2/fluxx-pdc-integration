@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # Builds a paste-in script that runs only two steps of PDC Bootstrap Deploy
-# Model: creating missing attributes ("# 1.") and the deploy model's own form
-# ("# 5."), copied from the bootstrap file so the same code is tested,
+# Model: creating missing attributes and the document type ("# 1.") and the
+# deploy model's own form ("# 4."), copied from the bootstrap file so the same code is tested,
 # with layout.json and the files it references embedded, so it can be tried
 # in Fluxx before anything is pushed.
 #
@@ -20,7 +20,7 @@ out_path = File.expand_path(ARGV[0] || 'DEV/one-off-layout.rb', ROOT)
 
 boot = File.read(File.join(ROOT, 'deploy/installer/PDC Bootstrap Deploy Model.rb'), encoding: 'UTF-8')
 attrs = boot[/^    # 1\. .*?(?=^    # 2\. )/m] or abort 'could not find step 1 in the bootstrap'
-step = boot[/^    # 5\. .*?(?=^    # 6\. )/m] or abort 'could not find step 5 in the bootstrap'
+step = boot[/^    # 4\. .*?(?=^    # 5\. )/m] or abort 'could not find step 4 in the bootstrap'
 step = attrs + step
 
 spec = JSON.parse(File.read(File.join(ROOT, 'deploy/installer/deploy-model.json'), encoding: 'UTF-8'))
@@ -56,7 +56,7 @@ script << <<~'RUBY'
     begin
       if dry_run
         # Same code, but nothing is saved: the save is rolled back.
-        ActiveRecord::Base.transaction do
+        ActiveRecord::Base.transaction(requires_new: true) do
 RUBY
 script << step.gsub(/^/, '      ')
 script << <<~'RUBY'

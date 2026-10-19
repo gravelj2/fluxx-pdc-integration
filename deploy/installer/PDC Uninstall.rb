@@ -74,10 +74,14 @@ uninstall = lambda do |log|
     doc = JSON.parse(st['json'].to_s)
     node_at = lambda { |trail| trail.inject(doc) { |n, i| n['elements'][i] } }
     label = lambda { |node| (node['config'].is_a?(Hash) && node['config']['label']) || node['label'] || 'group' }
-    # Collapse upward: a parent group whose children are all removable is removed instead.
+    # Marked PDC elements being removed (fingerprint matches have no marker to count)
+    removed_ids = trails.select { |t, v| lib[:element_text].call(node_at.call(t)).to_s.include?("PDC:ELEMENT id=#{v}") }.values
+    # Collapse upward: a parent group whose children are all removable is
+    # removed instead (groups only; other containers stay).
     loop do
       parents = trails.keys.select { |t| t.size > 1 }.map { |t| t[0..-2] }.uniq.reject { |p| trails.key?(p) }
       collapsed = parents.select do |p|
+        next false unless node_at.call(p)['element_type'] == 'group'
         kids = Array(node_at.call(p)['elements']).each_index.map { |i| p + [i] }
         kids.all? { |k| trails.key?(k) }
       end
@@ -97,11 +101,13 @@ uninstall = lambda do |log|
       parent = t.size == 1 ? doc : node_at.call(t[0..-2])
       parent['elements'].delete_at(t.last)
     end
-    new_raw = JSON.generate(doc)
-    leftover = specs.select { |s| new_raw.include?("PDC:ELEMENT id=#{s['id']}") && trails.values.include?(s['id']) }
-    raise "stencil #{stencil_id}: a PDC marker is still there after removal; nothing saved" if leftover.any?
-    st['json'] = new_raw
-    st.save!
+    new_raw = JSON.generate(doc, ascii_only: true)
+    count = lambda do |raw, id|
+      lib[:stencil_elements].call(raw).count { |e| lib[:element_text].call(e['element']).to_s.include?("PDC:ELEMENT id=#{id}") }
+    end
+    leftover = removed_ids.uniq.select { |id| count.call(new_raw, id) != count.call(st['json'].to_s, id) - removed_ids.count(id) }
+    raise "stencil #{stencil_id}: PDC element #{leftover.join(', ')} not removed as expected; nothing saved" if leftover.any?
+    lib[:write_stencil].call(st, new_raw)
     trails.values.sort.each { |what| log['removed from form'] << "#{what} @ stencil #{stencil_id} (#{st.name.to_s.strip})" }
   end
 

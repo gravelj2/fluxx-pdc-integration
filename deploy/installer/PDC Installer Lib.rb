@@ -98,9 +98,28 @@ end
 # Reading the public repo
 # ---------------------------------------------------------------------------
 
-lib[:repo_ref] = lambda do |deploy_model|
+# Where code comes from: the record's repo_url / repo_ref fields, else the
+# "PDC Repo Settings" method the bootstrap writes (the fields can't always be
+# set on the very first record).
+lib[:repo_settings] = lambda do |deploy_model|
+  saved = (deploy_model.dyn_invoke_for(:"PDC Repo Settings") rescue nil)
+  saved = {} unless saved.is_a?(Hash)
+  url = deploy_model.respond_to?(:repo_url) ? deploy_model.repo_url.to_s.strip : ''
   ref = deploy_model.respond_to?(:repo_ref) ? deploy_model.repo_ref.to_s.strip : ''
-  ref.empty? ? 'main' : ref
+  url = saved['repo_url'].to_s if url.empty?
+  ref = saved['repo_ref'].to_s if ref.empty?
+  ref = 'main' if ref.empty?
+  raise "repo_ref #{ref.inspect} isn't a branch, tag or commit name" unless ref =~ %r{\A[\w.\-/]+\z} && !ref.include?('..')
+  { 'repo_url' => url, 'repo_ref' => ref }
+end
+
+lib[:repo_ref] = lambda { |deploy_model| lib[:repo_settings].call(deploy_model)['repo_ref'] }
+
+# "owner/repo@ref", for results
+lib[:repo_label] = lambda do |deploy_model|
+  rs = lib[:repo_settings].call(deploy_model)
+  m = rs['repo_url'].match(%r{github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?/?\z})
+  "#{m ? "#{m[1]}/#{m[2]}" : rs['repo_url']}@#{rs['repo_ref']}"
 end
 
 lib[:raw_url] = lambda do |repo_url, ref, path|
@@ -111,13 +130,14 @@ lib[:raw_url] = lambda do |repo_url, ref, path|
 end
 
 lib[:fetch_repo_file] = lambda do |deploy_model, path|
-  ref = lib[:repo_ref].call(deploy_model)
-  uri = URI.parse(lib[:raw_url].call(deploy_model.repo_url, ref, path))
+  rs = lib[:repo_settings].call(deploy_model)
+  ref = rs['repo_ref']
+  uri = URI.parse(lib[:raw_url].call(rs['repo_url'], ref, path))
   resp = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, open_timeout: 10, read_timeout: 30) do |http|
     http.request(Net::HTTP::Get.new(uri))
   end
   unless resp.code == '200'
-    raise "Could not fetch #{path} at ref '#{ref}' from #{deploy_model.repo_url} (HTTP #{resp.code}). Check repo_url and repo_ref."
+    raise "Could not fetch #{path} at ref '#{ref}' from #{rs['repo_url']} (HTTP #{resp.code}). Check repo_url and repo_ref."
   end
   resp.body.to_s.dup.force_encoding('UTF-8')
 end
@@ -178,6 +198,15 @@ lib[:element_config_problems] = lambda do |el, required|
   (required || {}).reject { |k, want| lib[:truthy].call(cfg[k]) == want }.map do |k, want|
     "#{k} is #{lib[:truthy].call(cfg[k]) ? 'on' : 'off'}, needs #{want ? 'on' : 'off'}"
   end
+end
+
+# Saves a stencil's JSON and reads it back from the database: raises if what
+# was stored isn't what was written (e.g. truncated).
+lib[:write_stencil] = lambda do |stencil, raw|
+  stencil['json'] = raw
+  stencil.save!
+  back = Stencil.where(id: stencil.id).pluck(:json).first.to_s
+  raise "stencil #{stencil.id} did not save intact (#{back.bytesize} of #{raw.bytesize} bytes)" unless back == raw
 end
 
 lib[:form_types] = lambda do |stencil|
@@ -853,6 +882,14 @@ lib[:run_with_snapshots] = lambda do |deploy_model, title, results_field, target
   rescue => e
     extra['error'] = "#{e.class}: #{e.message}#{before_value ? ' (some changes may have been made; Restore Previous undoes them)' : ''}"
   end
+  # Nothing changed: drop the two snapshot documents and keep the pointers, so
+  # Restore Previous still goes back past the last real change.
+  changed = log.any? { |status, keys| keys.any? && results_tone.call(status) == 'done' }
+  if before_value && !changed
+    ModelDocument.where(id: JSON.parse(before_value)['document_id']).destroy_all rescue nil
+    before_value = nil
+    extra['mode'] = [extra['mode'], 'nothing changed'].compact.join('; ') unless extra['error']
+  end
   if before_value
     deploy_model.previous_configuration = before_value
     deploy_model.current_configuration =
@@ -871,10 +908,5 @@ lib[:run_with_snapshots] = lambda do |deploy_model, title, results_field, target
     (extra['error'] ? " || #{extra['error']}" : '')
 end
 
-lib[:summarize] = lambda do |rows, meta|
-  counts = Hash.new(0)
-  rows.each { |r| counts[r['status']] += 1 }
-  meta.merge('summary' => counts, 'problems' => rows.reject { |r| r['status'] == 'MATCH' })
-end
 
 lib

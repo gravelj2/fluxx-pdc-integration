@@ -23,26 +23,32 @@ if model.class.where(deleted_at: nil).where.not(id: model.id).exists?
   model.delete
 else
   path = "deploy/installer/PDC Bootstrap Deploy Model.rb"
-  m = repo_url.match(%r{github\.com/([^/]+)/([^/]+)})
-  uri = URI.parse("https://raw.githubusercontent.com/#{m[1]}/#{m[2]}/#{repo_ref}/#{CGI.escape(path).gsub('+', '%20').gsub('%2F', '/')}")
-  resp = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, open_timeout: 10, read_timeout: 30) do |http|
-    http.request(Net::HTTP::Get.new(uri))
-  end
-
-  if resp.code == '200'
-    body = resp.body.to_s.dup.force_encoding('UTF-8')
-    bootstrap = ModelMethod.where(model_type: model.class.name, name: 'PDC Bootstrap Deploy Model', deleted_at: nil).first
-    if bootstrap
-      bootstrap.unsafe_dyn_method = body
-      bootstrap.save!
-    else
-      ModelMethod.create!(model_type: model.class.name, method_type: 'method', name: 'PDC Bootstrap Deploy Model', unsafe_dyn_method: body)
-    end
-    model.instance_variable_set(:@pdc_bootstrap, { 'repo_url' => repo_url, 'repo_ref' => repo_ref, 'button_role' => button_role })
-    model.dyn_invoke_for(:"PDC Bootstrap Deploy Model")
-  else
-    msg = "PDC bootstrap: could not fetch #{path} at #{repo_ref} (HTTP #{resp.code})"
+  fail_with = lambda do |msg|
     model.installer_results = JSON.generate('title' => 'Installer update', 'mode' => 'failed', 'error' => msg) if model.respond_to?(:installer_results=)
     msg
+  end
+  begin
+    m = repo_url.to_s.strip.match(%r{github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?/?\z})
+    raise "repo_url must be a github.com repository URL, got #{repo_url.inspect}" unless m
+    uri = URI.parse("https://raw.githubusercontent.com/#{m[1]}/#{m[2]}/#{repo_ref}/#{path.split('/').map { |p| CGI.escape(p).gsub('+', '%20') }.join('/')}")
+    resp = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, open_timeout: 10, read_timeout: 30) do |http|
+      http.request(Net::HTTP::Get.new(uri))
+    end
+    if resp.code == '200'
+      body = resp.body.to_s.dup.force_encoding('UTF-8')
+      bootstrap = ModelMethod.where(model_type: model.class.name, name: 'PDC Bootstrap Deploy Model', deleted_at: nil).first
+      if bootstrap
+        bootstrap.unsafe_dyn_method = body
+        bootstrap.save!
+      else
+        ModelMethod.create!(model_type: model.class.name, method_type: 'method', name: 'PDC Bootstrap Deploy Model', unsafe_dyn_method: body)
+      end
+      model.instance_variable_set(:@pdc_bootstrap, { 'repo_url' => repo_url, 'repo_ref' => repo_ref, 'button_role' => button_role })
+      model.dyn_invoke_for(:"PDC Bootstrap Deploy Model")
+    else
+      fail_with.call("PDC bootstrap: could not fetch #{path} at #{repo_ref} (HTTP #{resp.code})")
+    end
+  rescue => e
+    fail_with.call("PDC bootstrap failed: #{e.class}: #{e.message}")
   end
 end
