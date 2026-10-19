@@ -9,8 +9,16 @@
       { "field": "pdc_grantee_profile", "label": "Grantee profile" },
       { "field": "pdc_staff_profile",   "label": "Staff profile" }
     ] },
+    { "raw": { "element_type": "spacer", "name": "spacer", "config": { "number_of_lines": "1" }, "visibility": { "visible_show": true, "visible_form": true, "advanced_filter": "1", "advanced_query": "{\"group_type\":\"and\",\"conditions\":[],\"relationship_filter_model_type\":\"MacModelTypeDynPdcInstallConfig\"}", "advanced_sort": "[]" }, "styling": { "alignment": "left" } } },
     { "group": "Results", "elements": [
       { "text_path": "deploy/installer/stencil/Results.liquid" }
+    ] },
+    { "raw": { "element_type": "spacer", "name": "spacer", "config": { "number_of_lines": "1" }, "visibility": { "visible_show": true, "visible_form": true, "advanced_filter": "1", "advanced_query": "{\"group_type\":\"and\",\"conditions\":[],\"relationship_filter_model_type\":\"MacModelTypeDynPdcInstallConfig\"}", "advanced_sort": "[]" }, "styling": { "alignment": "left" } } },
+    { "group": "Snapshots", "elements": [
+      { "raw": { "element_type": "component", "name": "model_documents", "label": "Documents", "legacy": null,
+                 "config": { "label": "Documents", "disable_add": true, "disable_generate_button": true, "always_allow_uploading": "0",
+                             "doc_label": "default", "pdf_snapshot": "0", "enable_docusign": "0" },
+                 "visibility": { "visible_show": true, "visible_form": true, "advanced_filter": "1", "advanced_query": "{\"group_type\":\"and\",\"conditions\":[],\"relationship_filter_model_type\":\"MacModelTypeDynPdcInstallConfig\"}", "advanced_sort": "[]" }, "styling": { "alignment": "left" } } }
     ] }
   ]
 }
