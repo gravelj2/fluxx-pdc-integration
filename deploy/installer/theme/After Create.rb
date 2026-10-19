@@ -7,7 +7,21 @@
 # runs the bootstrap again; it finds everything else in place and creates the
 # buttons with that role.
 
-if ModelMethod.where(model_type: model.class.name, name: 'PDC Bootstrap Deploy Model', deleted_at: nil).exists?
+#
+# Loop guard: the bootstrap saves this record once to keep its results. That
+# save must not run this block again, so it runs at most once per record per
+# request, and only while the buttons still lack a role.
+
+already = model.instance_variable_get(:@pdc_after_create_ran)
+needs_buttons = lambda do
+  theme = ModelTheme.where(model_type: model.class.name, deleted_at: nil).order(:id).first
+  wf = theme && MachineWorkflow.where(model_theme_id: theme.id, deleted_at: nil).first
+  events = wf ? MachineEvent.where(machine_workflow_id: wf.id, deleted_at: nil).pluck(:id) : []
+  events.empty? || events.any? { |id| !MachineEventRole.where(machine_event_id: id).exists? }
+end
+if !already && needs_buttons.call &&
+   ModelMethod.where(model_type: model.class.name, name: 'PDC Bootstrap Deploy Model', deleted_at: nil).exists?
+  model.instance_variable_set(:@pdc_after_create_ran, true)
   model.instance_variable_set(:@pdc_bootstrap, { 'phase' => 'after_create' })
   model.dyn_invoke_for(:"PDC Bootstrap Deploy Model")
 end

@@ -336,8 +336,10 @@ record =
       'groups' => [{ 'label' => 'log', 'tone' => 'info', 'items' => log.map { |l| { 'key' => l.to_s } } }] }
   end
 model.installer_results = JSON.generate(record) if model.respond_to?(:installer_results=)
-# From After Create the record is already saved, so save the results
-if handoff['phase'] == 'after_create' && model.persisted?
+# From After Create the record is already saved, so save the results, once:
+# the flag stops this save from ever leading to another one
+if handoff['phase'] == 'after_create' && model.persisted? && !model.instance_variable_get(:@pdc_results_saved)
+  model.instance_variable_set(:@pdc_results_saved, true)
   begin
     model.save!
   rescue => e

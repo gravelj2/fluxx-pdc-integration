@@ -302,9 +302,9 @@ lib[:placement_plan] = lambda do |deploy_model, scope|
     plan << { 'stencil_id' => stencil.id, 'model_type' => stencil.model_type, 'where' => "stencil #{stencil.id} (#{stencil.name.to_s.strip}, #{why})",
               'elements' => missing, 'fields' => fields }
   end
-  interactive = lib[:selected_themes].call(deploy_model, :pdc_themes)
-  readonly = lib[:selected_themes].call(deploy_model, :pdc_readonly_themes)
-  notes << 'no PDC Themes chosen, so no grant form gets the PDC elements' if interactive.empty? && readonly.empty?
+  interactive = lib[:selected_themes].call(deploy_model, :grant_request_themes)
+  readonly = lib[:selected_themes].call(deploy_model, :grant_request_readonly_themes)
+  notes << 'no Grant Request Themes chosen, so no grant form gets the PDC component' if interactive.empty? && readonly.empty?
   interactive.each do |th|
     st = lib[:theme_form].call(th)
     st ? add.call(st, rules['interactive'] || [], "theme #{th.name}") : notes << "theme #{th.name} has no form"

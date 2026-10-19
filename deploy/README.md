@@ -20,10 +20,10 @@ The deploy model stays in place after install. To remove PDC completely, click
 
 ## One-time setup (needs an admin who can save custom Ruby)
 
-1. **Create the deploy model**: any name (TRN uses `PDC Install Config`). Fluxx creates
-   its theme, workflow and blank stencils automatically.
-2. **Paste `installer/theme/Before New.rb`** into that theme's Before New block. Check
-   `repo_url` and `repo_ref` at the top (pin a release tag or commit SHA in production).
+1. **Create the deploy model** and name it **PDC Install Config**. (Nothing depends on the
+   name, but using this one keeps every instance and these instructions in step.) Fluxx
+   creates its theme, workflow and blank form automatically.
+2. **Paste `installer/theme/Before New.rb`** into that theme's Before New block as is.
 3. **Click New.** As the form opens, Before New downloads `PDC Bootstrap Deploy Model`
    and runs it. That builds the deploy model from `installer/deploy-model.json`: its
    fields and dropdowns, the Snapshot document type, installer methods, states, form,
@@ -105,8 +105,8 @@ download the last snapshot first if you may need it.
 
 Where Install adds what's missing:
 - **PDC elements** go in a PDC group at the bottom of the form of each theme chosen in
-  **PDC Themes** (the interactive set, plus the `pdc_account_exists` field it reads) and
-  **PDC Read-only Themes** (the read-only set). The OAuth callback goes at the bottom of
+  **Grant Request Themes** (the interactive set, plus the `pdc_account_exists` field it reads) and
+  **Grant Request Read-only Themes** (the read-only set). The OAuth callback goes at the bottom of
   the first GenericTemplate on the **PDC Grantee Profile**'s dashboard. Move them where
   they belong afterwards; Install finds them by their markers wherever they are.
 - **The `###PDC_CODE###` block** goes at the top of GrantRequest's `granted` hook, so it
@@ -131,6 +131,14 @@ form stencil with [installer/stencil/layout.json](installer/stencil/layout.json)
 settings fields and the results block. It isn't backed up; the layout lives in the repo.
 Nothing else edits this stencil. Change the form by editing `layout.json` in the repo,
 not in Fluxx, or the next Update Installer replaces your edits.
+
+## Advanced configuration
+
+- **Which code is installed.** `repo_url` and `repo_ref` at the top of Before New say
+  where the installer reads from (defaults: the macfound repo, `main`). Whatever is at
+  that ref becomes Ruby that runs in your Fluxx, so in production consider pinning
+  `repo_ref` to a release tag or commit SHA, and moving it forward deliberately. After
+  setup, the same two settings are fields on the deploy record.
 
 ## Testing before a push
 

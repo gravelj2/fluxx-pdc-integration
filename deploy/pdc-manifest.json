@@ -81,7 +81,7 @@
       "allow_script": true,
       "strip_html": false
     },
-    "_placement": "Where Install adds PDC elements that aren't on a form yet, in this order, inside a group with group_label at the bottom of the form: interactive to the form of each theme chosen in PDC Themes, readonly to each chosen in PDC Read-only Themes, dashboard to the first GenericTemplate on the PDC Grantee Profile's dashboard. Admins move them afterwards.",
+    "_placement": "Where Install adds PDC elements that aren't on a form yet, in this order, inside a group with group_label at the bottom of the form: interactive to the form of each theme chosen in Grant Request Themes, readonly to each chosen in Grant Request Read-only Themes, dashboard to the first GenericTemplate on the PDC Grantee Profile's dashboard. Admins move them afterwards.",
     "placement": {
       "group_label": "Contribute to the Philanthropy Data Commons (PDC)",
       "interactive": [
@@ -771,7 +771,7 @@
       "model_type": "MacModelTypeDynPdcConsent",
       "name": "CurrentConsentLanguage",
       "method_type": "method",
-      "body_sha256": "4ced25d98ac5f96cd6b1eae67834b37bfac79f325369c31b82d8ed2b868e3c57",
+      "body_sha256": "d9f6d376fa169dbcb756ccbc12d1beba870f7d5eacfa4db0e0ef7a5c6bb3c2f6",
       "body_path": "pdc-map/pdc-consent/CurrentConsentLanguage.rb"
     },
     {

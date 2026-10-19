@@ -25,8 +25,8 @@
 #   granted   the ###PDC_CODE### block in GrantRequest's granted hook
 #             (added at the top of the hook if it isn't there)
 #   elements  the text and settings of PDC stencil elements already on a
-#             form; elements a chosen form lacks (PDC Themes, PDC Read-only
-#             Themes, and the PDC Grantee Profile's dashboard page) are added
+#             form; elements a chosen form lacks (Grant Request Themes, Grant
+#             Request Read-only Themes, and the PDC Grantee Profile's dashboard page) are added
 #             in a PDC group at the bottom, with the native fields they need,
 #             for the admin to move
 #

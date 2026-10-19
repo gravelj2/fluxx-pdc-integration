@@ -9,8 +9,9 @@
 # Only one deploy record may exist: a second one deletes itself (Fluxx shows
 # an error page; raising an error here does NOT stop the save).
 #
-# Pin REPO_REF to a release tag or commit SHA in production: whatever is at
-# that ref becomes Ruby that runs in this Fluxx instance.
+# repo_url / repo_ref: where the installer reads from. Whatever is at that ref
+# becomes Ruby that runs in this Fluxx instance (see Advanced configuration in
+# deploy/README.md).
 
 require 'json'
 require 'net/http'
@@ -24,8 +25,25 @@ if model.class.where(deleted_at: nil).where.not(id: model.id).exists?
   model.delete
 else
   path = "deploy/installer/PDC Bootstrap Deploy Model.rb"
+  # A raise here is silently ignored and the record saves anyway, so a failure
+  # is written to the installer_results field (created if needed). If even
+  # that isn't possible, the record is deleted rather than left looking set up.
   fail_with = lambda do |msg|
-    model.installer_results = JSON.generate('title' => 'Installer update', 'mode' => 'failed', 'error' => msg) if model.respond_to?(:installer_results=)
+    unless model.respond_to?(:installer_results=)
+      begin
+        unless ModelAttribute.where(model_type: model.class.name, name: 'installer_results', deleted_at: nil).exists?
+          ModelAttribute.create!(model_type: model.class.name, name: 'installer_results', attribute_type: 'text',
+                                 multi_allowed: false, description: 'Installer Results')
+        end
+      rescue => e
+        nil
+      end
+    end
+    if model.respond_to?(:installer_results=)
+      model.installer_results = JSON.generate('title' => 'Installer update', 'mode' => 'failed', 'error' => msg)
+    else
+      model.delete
+    end
     msg
   end
   begin
@@ -45,7 +63,12 @@ else
         ModelMethod.create!(model_type: model.class.name, method_type: 'method', name: 'PDC Bootstrap Deploy Model', unsafe_dyn_method: body)
       end
       model.instance_variable_set(:@pdc_bootstrap, { 'repo_url' => repo_url, 'repo_ref' => repo_ref })
-      model.dyn_invoke_for(:"PDC Bootstrap Deploy Model")
+      out = model.dyn_invoke_for(:"PDC Bootstrap Deploy Model")
+      res = (JSON.parse(out.to_s) rescue nil)
+      # The bootstrap writes its own results (with the error, if any) to
+      # installer_results; if that field couldn't be set, don't keep the record
+      model.delete if res && res['error'] && !model.respond_to?(:installer_results=)
+      out
     else
       fail_with.call("PDC bootstrap: could not fetch #{path} at #{repo_ref} (HTTP #{resp.code})")
     end

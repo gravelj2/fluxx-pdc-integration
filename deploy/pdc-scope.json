@@ -46,7 +46,7 @@
   "_element_required_config": "Settings every PDC stencil element needs. allow_script lets its JavaScript (and onload handlers) run; strip_html would remove its markup. Fluxx stores these as true/\"1\"/\"0\"; any on/off form is accepted.",
   "element_required_config": { "allow_script": true, "strip_html": false },
 
-  "_placement": "Where Install adds PDC elements that aren't on a form yet, in this order, inside a group with group_label at the bottom of the form: interactive to the form of each theme chosen in PDC Themes, readonly to each chosen in PDC Read-only Themes, dashboard to the first GenericTemplate on the PDC Grantee Profile's dashboard. Admins move them afterwards.",
+  "_placement": "Where Install adds PDC elements that aren't on a form yet, in this order, inside a group with group_label at the bottom of the form: interactive to the form of each theme chosen in Grant Request Themes, readonly to each chosen in Grant Request Read-only Themes, dashboard to the first GenericTemplate on the PDC Grantee Profile's dashboard. Admins move them afterwards.",
   "placement": {
     "group_label": "Contribute to the Philanthropy Data Commons (PDC)",
     "interactive": ["portal-style", "fluxx-card-api", "oauth-client", "stencil-container", "floating-panel"],
