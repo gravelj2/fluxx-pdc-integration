@@ -30,6 +30,10 @@ The deploy model stays in place after install. To remove PDC completely, click
    form as **Installer update**.
    - Only one deploy record may exist. A second one deletes itself; Fluxx shows an error
      page.
+   - Only one deploy model may exist. If another model already has the installer, Before
+     New sets nothing up and the record says which model to use.
+   - Re-running is safe at every level: the bootstrap and Install look each piece up by
+     name first, and only create what doesn't exist.
    - The bootstrap uses `model.class`, so the model's name doesn't matter.
 4. Later, **Update Installer** re-runs the bootstrap against `repo_ref`, replacing the
    deploy model's own methods and form with the repo copy.

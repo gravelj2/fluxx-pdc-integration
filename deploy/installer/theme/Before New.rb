@@ -4,7 +4,9 @@
 # Before New block). On the first record it downloads PDC Bootstrap Deploy
 # Model from the repo and runs it, which builds the rest of the deploy model.
 # Only one deploy record may exist: a second one deletes itself (Fluxx shows
-# an error page; raising an error here does NOT stop the save).
+# an error page; raising an error here does NOT stop the save). Only one
+# deploy model may exist: if another model already has the installer, this
+# one sets nothing up.
 #
 # Pin REPO_REF to a release tag or commit SHA in production: whatever is at
 # that ref becomes Ruby that runs in this Fluxx instance.
@@ -17,8 +19,17 @@ require 'cgi'
 repo_url = "https://github.com/macfound/fluxx-pdc-integration"
 repo_ref = "main"
 
+# PDC is managed from one deploy model per instance. If another model type
+# already has the installer, stop here without creating anything and say
+# which model to use (the record stays so the message can be read).
+other = ModelMethod.where(name: 'PDC Bootstrap Deploy Model', deleted_at: nil).where.not(model_type: model.class.name).pluck(:model_type).first
+
 if model.class.where(deleted_at: nil).where.not(id: model.id).exists?
   model.delete
+elsif other
+  msg = "PDC is already managed by the deploy model #{other}. Use that one; nothing was set up here. Delete this model."
+  model.installer_results = JSON.generate('title' => 'Installer update', 'mode' => 'refused', 'error' => msg) if model.respond_to?(:installer_results=)
+  msg
 else
   path = "deploy/installer/PDC Bootstrap Deploy Model.rb"
   m = repo_url.match(%r{github\.com/([^/]+)/([^/]+)})
