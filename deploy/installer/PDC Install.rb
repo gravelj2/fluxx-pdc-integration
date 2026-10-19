@@ -146,74 +146,6 @@ install = lambda do |log|
       reconcile.call("workflow #{w['key']}", rec, 'name' => w['name'])
     end
   end
-  # The models' own forms, from the repo. Profile restrictions in the repo copy
-  # are TRN's; they become the PDC Staff Profile chosen on this record.
-  staff = lib[:selected_profile].call(model, :pdc_staff_profile)
-  profile_keys = scope['stencil_profile_keys'] || []
-  volatile = scope['stencil_volatile_keys'] || []
-  restricted = false
-  map_profiles = nil
-  map_profiles = lambda do |node|
-    case node
-    when Hash
-      node.each_with_object({}) do |(k, v), h|
-        if profile_keys.include?(k) && Array(v).reject { |x| x.to_s.empty? }.any?
-          restricted = true
-          h[k] = staff ? [staff.id.to_s] : v
-        else
-          h[k] = map_profiles.call(v)
-        end
-      end
-    when Array then node.map { |v| map_profiles.call(v) }
-    else node
-    end
-  end
-  Array(bundle['stencils']).each do |sp|
-    theme = ModelTheme.where(model_type: sp['model_type'], deleted_at: nil).order(:id).first
-    next log['skipped, its theme is missing'] << "form #{sp['key']}" if theme.nil?
-    restricted = false
-    doc = map_profiles.call(sp['json'])
-    if restricted && staff.nil?
-      log['note'] << "form #{sp['key']} not written: choose the PDC Staff Profile (it restricts part of the form)"
-      next
-    end
-    raw = JSON.generate(doc, ascii_only: true)
-    st = live_or_gone.call(Stencil.where(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name']))
-    if st.nil?
-      st = Stencil.new(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name'], enabled: true)
-      st.form_type = %w[form list show]
-      lib[:write_stencil].call(st, raw)
-      log['created form'] << sp['key']
-    elsif st.deleted_at.present? || lib[:stencil_sha].call(st['json'], volatile, []) != lib[:stencil_sha].call(raw, volatile, [])
-      how = st.deleted_at.present? ? 'restored form' : 'overwrote'
-      st.deleted_at = nil
-      lib[:write_stencil].call(st, raw)
-      log[how] << "form #{sp['key']}"
-    else
-      log['ok'] << "form #{sp['key']}"
-    end
-  end
-  # Consent permissions for the PDC Grantee Profile
-  grantee = lib[:selected_profile].call(model, :pdc_grantee_profile)
-  if grantee.nil?
-    log['note'] << 'no PDC Grantee Profile chosen, so grantees get no Consent permissions' if Array(bundle['permissions']).any?
-  else
-    Array(bundle['permissions']).each do |pm|
-      key = "#{pm['key']} for #{grantee.name}"
-      rule = UserProfileRule.where(model_type: pm['model_type'], permission_name: pm['permission_name'], user_profile_id: grantee.id).first
-      if rule.nil?
-        UserProfileRule.create!(model_type: pm['model_type'], permission_name: pm['permission_name'], user_profile_id: grantee.id, allowed: pm['allowed'])
-        log['created permission'] << key
-      elsif rule.allowed != pm['allowed']
-        rule.allowed = pm['allowed']
-        rule.save!
-        log['overwrote'] << "#{key} [allowed]"
-      else
-        log['ok'] << key
-      end
-    end
-  end
-
   # If a PDC model still couldn't be set up, anything on it is skipped (never
   # created as an orphan) and the model is reported.
   present = MachineModelType.where(model_type: owned, deleted_at: nil).pluck(:model_type)
@@ -265,6 +197,94 @@ install = lambda do |log|
       want.each { |c, v| opt[c] = v }
       opt.save!
       log["#{how} option"] << key
+    end
+  end
+
+  # The models' own forms, from the repo (after the fields and options above,
+  # which they refer to). Two things in the repo copy are TRN's: profile
+  # restrictions become the PDC Staff Profile chosen on this record, and
+  # dropdown option ids in show/hide conditions become this instance's ids for
+  # the same options.
+  staff = lib[:selected_profile].call(model, :pdc_staff_profile)
+  profile_keys = scope['stencil_profile_keys'] || []
+  volatile = scope['stencil_volatile_keys'] || []
+  restricted = false
+  map_profiles = nil
+  map_profiles = lambda do |node|
+    case node
+    when Hash
+      node.each_with_object({}) do |(k, v), h|
+        if profile_keys.include?(k) && Array(v).reject { |x| x.to_s.empty? }.any?
+          restricted = true
+          h[k] = staff ? [staff.id.to_s] : v
+        else
+          h[k] = map_profiles.call(v)
+        end
+      end
+    when Array then node.map { |v| map_profiles.call(v) }
+    else node
+    end
+  end
+  Array(bundle['stencils']).each do |sp|
+    theme = ModelTheme.where(model_type: sp['model_type'], deleted_at: nil).order(:id).first
+    next log['skipped, its theme is missing'] << "form #{sp['key']}" if theme.nil?
+    restricted = false
+    trn_ids = (scope['stencil_option_ids'] || {}).each_with_object({}) do |(key, ids), h|
+      mt, attr = key.split('.', 2)
+      h[attr] = ids if mt == sp['model_type']
+    end
+    unmatched = []
+    doc = lib[:rewrite_conditions].call(sp['json'], lambda do |attr, v|
+      name = trn_ids[attr] && trn_ids[attr][v]
+      next v if name.nil?
+      field = ModelAttribute.where(model_type: sp['model_type'], name: attr, deleted_at: nil).first
+      opt = field && ModelAttributeValue.where(model_attribute_id: field.id, value: name, deleted_at: nil).first
+      unmatched << "#{attr} = #{name}" if opt.nil?
+      opt ? opt.id.to_s : v
+    end)
+    unless unmatched.empty?
+      log['note'] << "form #{sp['key']} not written: dropdown option missing (#{unmatched.join(', ')})"
+      next
+    end
+    doc = map_profiles.call(doc)
+    if restricted && staff.nil?
+      log['note'] << "form #{sp['key']} not written: choose the PDC Staff Profile (it restricts part of the form)"
+      next
+    end
+    raw = JSON.generate(doc, ascii_only: true)
+    st = live_or_gone.call(Stencil.where(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name']))
+    if st.nil?
+      st = Stencil.new(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name'], enabled: true)
+      st.form_type = %w[form list show]
+      lib[:write_stencil].call(st, raw)
+      log['created form'] << sp['key']
+    elsif st.deleted_at.present? || lib[:stencil_sha].call(st['json'], volatile, []) != lib[:stencil_sha].call(raw, volatile, [])
+      how = st.deleted_at.present? ? 'restored form' : 'overwrote'
+      st.deleted_at = nil
+      lib[:write_stencil].call(st, raw)
+      log[how] << "form #{sp['key']}"
+    else
+      log['ok'] << "form #{sp['key']}"
+    end
+  end
+  # Consent permissions for the PDC Grantee Profile
+  grantee = lib[:selected_profile].call(model, :pdc_grantee_profile)
+  if grantee.nil?
+    log['note'] << 'no PDC Grantee Profile chosen, so grantees get no Consent permissions' if Array(bundle['permissions']).any?
+  else
+    Array(bundle['permissions']).each do |pm|
+      key = "#{pm['key']} for #{grantee.name}"
+      rule = UserProfileRule.where(model_type: pm['model_type'], permission_name: pm['permission_name'], user_profile_id: grantee.id).first
+      if rule.nil?
+        UserProfileRule.create!(model_type: pm['model_type'], permission_name: pm['permission_name'], user_profile_id: grantee.id, allowed: pm['allowed'])
+        log['created permission'] << key
+      elsif rule.allowed != pm['allowed']
+        rule.allowed = pm['allowed']
+        rule.save!
+        log['overwrote'] << "#{key} [allowed]"
+      else
+        log['ok'] << key
+      end
     end
   end
 

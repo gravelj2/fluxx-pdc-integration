@@ -15,8 +15,9 @@ The deploy model stays in place after install. To remove PDC completely, click
 | `pdc-scope.json` | Hand-maintained. *What* PDC consists of: owned models, GrantRequest pieces, secrets, exclusions, stencil-element fingerprints. |
 | `pdc-manifest.json` | Generated, never hand-edited. Every PDC component with its natural key, settings, repo path and sha256. Validation compares against this. |
 | `pdc-install-bundle.json` | Generated with the manifest. The same components with their bodies inlined, so Install and Uninstall need one fetch. |
-| `installer/` | The deploy model's methods. Only `theme/Before New.rb` is pasted by hand; the rest is installed from `deploy-model.json` by the bootstrap. |
-| `tools/pdc_manifest.rb` | Local Ruby (no gems) that builds and checks the manifest. |
+| `installer/` | The deploy model's methods, its theme's Before New / After Create code, and its form (`stencil/`). Only `theme/Before New.rb` is pasted by hand; the rest is installed from `deploy-model.json` by the bootstrap. |
+| `tools/pdc_manifest.rb` | Local Ruby (no gems) that builds and checks the manifest and the install bundle. |
+| `tools/build_one_off_*.rb` | Build paste-in versions of the installer's actions, for testing in Fluxx before a push (see below). |
 
 ## One-time setup (needs an admin who can save custom Ruby)
 
@@ -34,8 +35,9 @@ The deploy model stays in place after install. To remove PDC completely, click
 4. **Pick the Installer Role** (required: who may use the deploy model's buttons) and
    save. After Create runs the bootstrap again, which creates the buttons with that
    role. What it did shows on the form as **Installer update**.
-   - Only one deploy record may exist. A second one deletes itself; Fluxx shows an
-     error page.
+   - Only one deploy record may exist. A second one deletes itself (Fluxx shows an
+     error page), and deleting the only one undoes itself, since it holds the results
+     and snapshots. To remove PDC, use Uninstall and then delete the deploy model.
 5. Later, **Update Installer** re-runs the bootstrap against `repo_ref`, replacing the
    deploy model's own methods and form with the repo copy. Changing the Installer Role
    and clicking Update Installer moves the buttons to the new role.
@@ -45,19 +47,24 @@ The deploy model stays in place after install. To remove PDC completely, click
 1. Open the deploy record that setup created. `repo_url`/`repo_ref` should be filled in
    (if they're blank, enter them; the installer also remembers them in a `PDC Repo
    Settings` method) and the dropdowns loaded; Refresh Lists reloads the dropdowns later.
-2. Pick the three instance-specific choices. Names differ per org, so nothing is guessed:
-   - `pdc_event_role`: the role that may click the PDC Integration Map's buttons (TRN: Admin)
-   - `pdc_grantee_profile`: grantees, who view and update their own PDC Consent records (TRN: Grantee)
-   - `pdc_staff_profile`: staff allowed to edit the PDC fields the Consent form restricts (TRN: Employee with Permissions Plus)
+2. Make the instance-specific choices. Names differ per org, so nothing is guessed:
+   - **Installer Role** (required): who may use the deploy model's buttons
+   - **PDC Event Role**: the role that may click the PDC Integration Map's buttons (TRN: Admin)
+   - **PDC Grantee Profile**: grantees, who view and update their own PDC Consent records;
+     its dashboard's first page also gets the OAuth callback (TRN: Grantee)
+   - **PDC Staff Profile**: staff allowed to edit the PDC fields the Consent form
+     restricts (TRN: Employee with Permissions Plus)
+   - **Grant Request Themes** / **Grant Request Read-only Themes**: which grant themes
+     show grantees the PDC component, interactive or read-only
 3. Click a button:
 
    | Button | What it does |
    |---|---|
    | **Validate** | Read-only. Compares this instance with the repo at `repo_ref`, so it previews what Install would change. |
    | **Install** | Installs and updates. Installs what's missing, restores what was soft-deleted (same id, so saved answers keep working), and overwrites anything PDC owns that differs from the repo. To move to another release, change `repo_ref` and click Install. Never removes anything: methods, states or buttons PDC didn't ship belong to whoever built them. |
-   | **Uninstall** | Removes what PDC owns (soft-deleted where Fluxx allows) and lists anything it isn't sure about, plus the PDC models themselves, for someone to review and delete by hand. |
+   | **Uninstall** | Removes what PDC owns (soft-deleted, so Restore Previous can bring it back) and lists anything it isn't sure about, the PDC copies of grant forms, and the PDC models themselves, for someone to review and delete by hand. |
    | **Restore Previous** | Puts every PDC component back the way it was before the last Install, Uninstall or Restore. Clicking it twice undoes the restore. |
-   | **Refresh Lists** | Reloads the role and profile dropdowns. |
+   | **Refresh Lists** | Reloads the role, profile and theme dropdowns. |
    | **Update Installer** | Updates the deploy model itself from the repo. |
 
    Validate statuses:
@@ -69,7 +76,7 @@ The deploy model stays in place after install. To remove PDC completely, click
    | `MISSING` | No record with that name/key |
    | `EXTRA` | A live PDC record the manifest doesn't list (e.g. a leftover test method) |
    | `SKIPPED_SECRET` | Secret method: checked it exists, body never compared |
-   | `MARKER_NOT_FOUND` | GrantRequest `granted` hook has no `###PDC_CODE###` block |
+   | `MARKER_NOT_FOUND` | GrantRequest `granted` hook has no `###PDC_CODE###` block (Install adds it) |
    | `MISSING_ROLE` / `ROLE_DIFFERS` | Integration Map button has no role, or not the chosen one |
    | `UNMARKED` | PDC stencil element recognized by fingerprint but lacking its `PDC:ELEMENT` marker (Install adds it) |
    | `UNMARKED_DIFFERS` | Same as `UNMARKED`, but the element's content also differs from the repo copy |
@@ -81,29 +88,17 @@ The deploy model stays in place after install. To remove PDC completely, click
 Validation is read-only. The report keeps counts for everything, and detail for anything
 that isn't `MATCH`.
 
-## Results and snapshots on the form
+## What Install does
 
-Each action saves what it did to a text field on the deploy record, newest shown first:
-`installer_results`, `validate_results`, `install_results`, `uninstall_results`,
-`restore_results`. `PDC_Results` reads them and the Liquid block in
-[installer/stencil/Results.liquid](installer/stencil/Results.liquid) renders when each
-ran, a count per status, and the items under every status except MATCH/ok.
-
-**Configuration snapshots.** Install, Uninstall and Restore Previous save a snapshot of
-the whole PDC configuration before they change anything, and another after. That covers
-fields and static options, methods, theme code, states, buttons (with from-states and
-roles), the `granted` hook, and every form holding PDC elements or fields. Secret methods
-are recorded only as existing or deleted, never their values.
-
-Each snapshot is a text document of type **Snapshot** on the deploy record, named like
-`PDC snapshot 2026-10-19 14:05:00 UTC before Install (main).json`. All of them are kept
-(the GrantRequest forms make each one 1–3 MB). `previous_configuration` and
-`current_configuration` hold just a pointer to the latest before and after documents, and
-Restore Previous follows `previous_configuration`. If a snapshot doesn't read back
-intact, the action stops with nothing changed. The snapshot documents belong to the deploy record and go with it if it's deleted, so
-download the last snapshot first if you may need it.
-
-Where Install adds what's missing:
+- **The three PDC models** are kept if they exist, brought back if they were
+  soft-deleted (same ids, so existing records reattach), or created with their exact
+  internal names. Then their themes, workflows and forms, and the Consent permissions
+  (list, view and update their own) for the **PDC Grantee Profile**. Two things in the
+  repo's model forms are TRN's and are translated: profile restrictions become the
+  **PDC Staff Profile**, and dropdown option ids in show/hide conditions become this
+  instance's ids for the same options.
+- **Their fields, options, methods, theme code, states and buttons**, and the
+  GrantRequest pieces (fields and `PDC` methods).
 - **PDC elements** go in a PDC group at the bottom of the grant forms of each theme
   chosen in **Grant Request Themes** (the interactive set, plus the `pdc_account_exists`
   field it reads) and **Grant Request Read-only Themes** (the read-only set). The OAuth
@@ -124,12 +119,32 @@ Where Install adds what's missing:
   always runs.
 - If a PDC model still can't be set up, Install touches only the PDC models that exist:
   GrantRequest's PDC hooks call into all three, so they wait.
+- Install never removes anything it doesn't recognize, and never writes the secret
+  `Get PDC Client ID` / `Get PDC Client Secret` methods; enter those in Fluxx.
 
-- **The three PDC models** are kept if they exist, brought back if they were
-  soft-deleted (same ids, so existing records reattach), or created with their exact
-  internal names. Then their themes, workflows and forms (the forms from the repo, with
-  any profile restriction set to the **PDC Staff Profile**), and the Consent permissions
-  (list, view and update their own) for the **PDC Grantee Profile**.
+## Results and snapshots on the form
+
+Each action saves what it did to a text field on the deploy record, newest shown first:
+`installer_results`, `validate_results`, `install_results`, `uninstall_results`,
+`restore_results`. `PDC_Results` reads them and the Liquid block in
+[installer/stencil/Results.liquid](installer/stencil/Results.liquid) renders when each
+ran, a count per status, and the items under every status except MATCH/ok.
+
+**Configuration snapshots.** Install, Uninstall and Restore Previous save a snapshot of
+the whole PDC configuration before they change anything, and another after. That covers
+the PDC models, their themes, workflows and forms, fields and static options, methods,
+states, buttons (with from-states and roles), the Consent permissions, the `granted`
+hook, every form holding PDC elements or fields, and the PDC copies of grant forms.
+Secret methods are recorded only as existing or deleted, never their values.
+
+Each snapshot is a text document of type **Snapshot** on the deploy record, named like
+`PDC snapshot 2026-10-19 14:05:00 UTC before Install (main).json`. All of them are kept
+(the GrantRequest forms make each one 1–3 MB). `previous_configuration` and
+`current_configuration` hold just a pointer to the latest before and after documents, and
+Restore Previous follows `previous_configuration`. If a snapshot doesn't read back
+intact, the action stops with nothing changed. The snapshot documents belong to the
+deploy record and go with the deploy model if it's deleted, so download the last
+snapshot first if you may need it.
 
 About Restore Previous:
 - A run that changes nothing doesn't replace what Restore Previous goes back to, but any
@@ -165,8 +180,8 @@ ruby deploy/tools/build_one_off_action.rb install    # also: validate, uninstall
 ```
 
 `build_one_off_layout.rb` does the same for the bootstrap's fields, document type and
-form steps. Each script runs the same code as its button
-and saves the record, so the results show on the form.
+form steps. Each script runs the same code as its button and saves the record, so the
+results show on the form. The generated scripts go to `DEV/`, which git ignores.
 
 ## Updating the manifest (maintainers)
 
@@ -197,7 +212,8 @@ exported.
   instance), and the main form stencil.
 - **Shared** (GrantRequest, GenericTemplate): only `PDC`-prefixed methods, the
   `pdc_account_exists` / `pdc_proposal_id` attributes, the `###PDC_CODE###` slice of the
-  `granted` hook, and marked/fingerprinted stencil elements.
+  `granted` hook, marked/fingerprinted stencil elements, and the "(PDC)" copies of grant
+  forms.
 - **Dropdowns filled at runtime** (`runtime_option_attributes`): the attribute must exist;
   its options aren't compared.
 - `ModelAttributeChoice` holds per-record values and is never read or written.

@@ -81,6 +81,13 @@
       "allow_script": true,
       "strip_html": false
     },
+    "_stencil_option_ids": "Dropdown option ids that the repo's model forms use in show/hide conditions, as they are on TRN (where the forms were exported). Install swaps them for the same options' ids on the target instance, and both sides of Validate compare these conditions by option name instead of id.",
+    "stencil_option_ids": {
+      "MacModelTypeDynPdcConsent.consent_type": {
+        "10699983": "Grant consent to share data with the PDC",
+        "10699984": "Decline to share data with the PDC"
+      }
+    },
     "_stencil_field_templates": "How Install adds a native field the PDC code reads, copied from TRN's stencil 45712 (2026-10-19). visible_form only: the field is on the form for the PDC component's account question to read and write, and not shown in the read-only view.",
     "stencil_field_templates": {
       "GrantRequest.pdc_account_exists": {
@@ -1191,7 +1198,7 @@
       "key": "MacModelTypeDynPdcConsent:form",
       "model_type": "MacModelTypeDynPdcConsent",
       "name": "default",
-      "json_sha256": "b99ba3734c714bc0a4994bb89b11a41eb702689297ec90e8e0a30a1425faa4b7",
+      "json_sha256": "b222dea9c3301f782d10860afd7495796a26c55fcb37c7e24c07e941977b6bea",
       "json_path": "pdc-map/pdc-consent/stencils/form.json"
     },
     {

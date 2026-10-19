@@ -10,7 +10,7 @@ file name is its Fluxx method name; cross-method calls use
 - `MacModelTypeDynPdcApplicationForm1` — "PDC Integration Map" (admin-configured)
 - `MacModelTypeDynPdcMappedField1` — "PDC Mapped Field" (children of the map,
   reached via `reverse_pdc_mapping_field_MacModelTypeDynPdcMappedField1`)
-- `MacModelTypeDynPDCConsent` — "PDC Consent" (one per grant, linked via
+- `MacModelTypeDynPdcConsent` — "PDC Consent" (one per grant, linked via
   `grant_or_request_id`)
 
 > Note: capitalization of the dynamic model names is inconsistent in places
@@ -157,9 +157,9 @@ dashboard: UserProfile (`categories`, a JSON string, includes `"grantee"`) →
 TRN has two grantee-category profiles (Grantee 77, Borrower 1779), so the
 profile has to be chosen, not guessed.
 
-**Ids hard-coded in methods.** `CurrentConsentLanguage` links to
-`/show/generic_templates/44210` (the Q&A page), and `Get PDC Base URL` reads
-`ClientConfiguration` 47. Both differ per instance.
+**Ids hard-coded in methods.** `Get PDC Base URL` reads `ClientConfiguration` 47,
+which differs per instance. `CurrentConsentLanguage`'s Q&A link is a placeholder to
+replace per instance.
 
 **Secrets.** `Get PDC Client ID` and `Get PDC Client Secret` hold real
 credentials in Fluxx and placeholders in the repo. They are never exported or
@@ -173,6 +173,7 @@ the API:
 - The `filter` parameter is ignored, so lists must be filtered client-side;
   `per_page` maxes out at 500.
 
-Ruby running inside Fluxx has none of these limits. Records it deletes with
-`destroy` are hard-deleted, so the installer backs bodies up before replacing
-them.
+Ruby running inside Fluxx has none of these limits. Its `destroy` hard-deletes
+config records, so the installer never uses it: it soft-deletes (sets `deleted_at`,
+as the GUI does), brings soft-deleted records back with their ids, and saves a
+snapshot document of the whole PDC configuration before changing anything.

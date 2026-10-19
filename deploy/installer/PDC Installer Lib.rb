@@ -66,9 +66,63 @@ end
 
 # ascii_only: Fluxx's JSON escapes non-ASCII (e.g. \u2713) and plain Ruby
 # doesn't, so force the escaped form on both sides.
-lib[:stencil_sha] = lambda do |raw, volatile, masked = []|
-  c = lib[:canonical_stencil].call(raw, volatile, masked)
-  c && Digest::SHA256.hexdigest(JSON.generate(c, ascii_only: true))
+# Show/hide conditions inside a stencil's "advanced_query" strings can name a
+# dropdown option by id ([attribute, op, option_id]); ids differ per instance.
+# rewrite_conditions passes each such value through fn.call(attribute, value)
+# and keeps the string untouched when nothing changes.
+rewrite_conditions = nil
+rewrite_conditions = lambda do |obj, fn|
+  case obj
+  when Hash
+    obj.each_with_object({}) do |(k, v), h|
+      h[k] = if k == 'advanced_query' && v.is_a?(String)
+               q = (JSON.parse(v) rescue nil)
+               if q.is_a?(Hash)
+                 changed = false
+                 walk = nil
+                 walk = lambda do |node|
+                   next node unless node.is_a?(Array)
+                   if node.size == 3 && node.all? { |x| x.is_a?(String) }
+                     nv = fn.call(node[0], node[2])
+                     next node if nv == node[2]
+                     changed = true
+                     next [node[0], node[1], nv]
+                   end
+                   node.map { |x| walk.call(x) }
+                 end
+                 out = q.merge('conditions' => walk.call(q['conditions']))
+                 changed ? JSON.generate(out) : v
+               else
+                 v
+               end
+             else
+               rewrite_conditions.call(v, fn)
+             end
+    end
+  when Array then obj.map { |v| rewrite_conditions.call(v, fn) }
+  else obj
+  end
+end
+lib[:rewrite_conditions] = lambda { |obj, fn| rewrite_conditions.call(obj, fn) }
+
+# This instance's option ids, as names ("option:<value>"), for the attributes the
+# scope lists for a model type: { attribute => { id => name } }
+lib[:live_option_names] = lambda do |scope, model_type|
+  (scope['stencil_option_ids'] || {}).keys.each_with_object({}) do |key, h|
+    mt, attr = key.split('.', 2)
+    next unless mt == model_type
+    field = ModelAttribute.where(model_type: mt, name: attr, deleted_at: nil).first
+    h[attr] = field ? ModelAttributeValue.where(model_attribute_id: field.id).each_with_object({}) { |o, m| m[o.id.to_s] = o.value.to_s } : {}
+  end
+end
+
+# Stencil hash; with names ({ attribute => { id => name } }) option ids in
+# conditions are compared by name, as the manifest tool does with the repo copy
+lib[:stencil_sha] = lambda do |raw, volatile, masked = [], names = {}|
+  next nil if raw.nil? || raw.to_s.strip.empty?
+  doc = JSON.parse(raw.to_s)
+  doc = rewrite_conditions.call(doc, lambda { |attr, v| names[attr] && names[attr][v] ? "option:#{names[attr][v]}" : v }) unless names.empty?
+  Digest::SHA256.hexdigest(JSON.generate(canon.call(doc, volatile, masked), ascii_only: true))
 end
 
 # Every value of the profile-restriction keys in a stencil, e.g. ["974"].
@@ -523,11 +577,12 @@ lib[:collect] = lambda do |scope, include_bodies|
     cands = Stencil.where(model_type: mt, deleted_at: nil).to_a.select { |st| lib[:form_types].call(st).include?('form') }
     next if cands.empty?
     primary = cands.max_by { |st| [st.enabled ? 1 : 0, st.updated_at.to_i] }
-    if cands.map { |st| lib[:stencil_sha].call(st['json'], volatile, masked) }.uniq.size > 1
+    names = lib[:live_option_names].call(scope, mt)
+    if cands.map { |st| lib[:stencil_sha].call(st['json'], volatile, masked, names) }.uniq.size > 1
       live['warnings'] << "#{cands.size} form stencils for #{mt} with different content (ids #{cands.map(&:id).join(', ')}); compared #{primary.id}"
     end
     e = { 'key' => "#{mt}:form", 'model_type' => mt, 'name' => primary.name }
-    e['json_sha256'] = lib[:stencil_sha].call(primary['json'], volatile, masked)
+    e['json_sha256'] = lib[:stencil_sha].call(primary['json'], volatile, masked, names)
     # Raw JSON for export (the repo keeps real profile ids for reference); masked for hashing.
     e['json'] = JSON.parse(primary['json']) if include_bodies
     e['profiles'] = lib[:stencil_profiles].call(primary['json'], masked).map do |id|

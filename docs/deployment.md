@@ -12,8 +12,8 @@ block in the `granted` hook. What's left by hand:
 - entering the real PDC client ID and secret
 - moving the added PDC groups to where they belong on each form
 
-The rest of this page describes what goes where, which still applies to those manual
-steps.
+The rest of this page is reference: where each repo file ends up in Fluxx, how the
+grantee journey behaves, and what to check per environment.
 
 ## What goes where
 
@@ -22,25 +22,10 @@ steps.
 | `pdc-map/grant-request/*.rb` | Methods/hooks on `GrantRequest`. Files named `AfterEnter…` / `PDC After Save…` are lifecycle hooks; the rest are named methods (deployed method name = file name without `.rb`) |
 | `pdc-map/pdc-integration-map/*.rb` | Methods/hooks on `MacModelTypeDynPdcApplicationForm1` (`Before New.rb` is the before-new hook) |
 | `pdc-map/pdc-integration-map/Show Mapped Fields.html` | Liquid block on the Integration Map form |
-| `pdc-map/pdc-consent/*.rb`, `Data Shared.liquid` | Methods / Liquid on `MacModelTypeDynPDCConsent` |
+| `pdc-map/pdc-consent/*.rb`, `Data Shared.liquid` | Methods / Liquid on `MacModelTypeDynPdcConsent` |
 | `data-explorer/0…5 *.html` | Blocks on the grantee-facing form/stencil, in numeric order |
 | `data-explorer/4r. pdc-stencil-readonly.html` | Read-only journey block — see "Read-only journey variant" below |
 | `data-explorer/oauth-callback.html` | Page served at the OAuth redirect URI registered with PDC |
-
-## Order matters
-
-1. **Foundations first** on the Integration Map model: `Get PDC Base URL`,
-   `Get PDC Client ID`, `Get PDC Client Secret`,
-   `Get Auth Token from PDC` — everything else calls these.
-2. **Dropdown/setup methods** next (`Set Opportunity Dropdown Values`,
-   `Set Application Dropdown Values`, `Set PDC Field Model Attribute Choices`,
-   `Set Fluxx Field Model Attribute Choices`), then run them once to populate
-   `ModelAttributeValue` choices.
-3. **Mapping + action methods**, then the consent model methods, then the
-   GrantRequest methods/hooks (they call into all of the above by name).
-4. **Data Explorer blocks 0–5 in order** — block 5 refuses to initialize until
-   block 4's structure-ready signal fires, and it requires the globals from
-   blocks 2 and 3.
 
 ## Read-only journey variant
 
@@ -55,7 +40,7 @@ Use it where the login/launch flow is unwanted.
 - **Do NOT deploy** blocks `2`, `3`, `5`, or `oauth-callback.html` with it — this
   variant runs **no custom JavaScript**. The consent link is native Fluxx
   (`to-modal` + `data-on-success="refreshCaller,close"`).
-- The consent step still needs the `MacModelTypeDynPDCConsent` model deployed so
+- The consent step still needs the `MacModelTypeDynPdcConsent` model deployed so
   the `dyn_related` Liquid resolves and the modal link works.
 
 ## Consent step states
@@ -97,22 +82,13 @@ choice to drop that word would. Keep "decline" in the negative option's label.
       URL as the redirect URI with PDC.
 - [ ] `Get PDC Base URL.rb`: confirm `ClientConfiguration` id 47 exists in the
       target instance (environment detection depends on it).
-- [ ] `CurrentConsentLanguage.rb`: the Q&A link now uses a relative URL
-      (`/show/generic_templates/44210`), so it resolves against whatever
-      Fluxx instance actually serves the page -- the old hardcoded-preprod-
-      domain bug is fixed. What's NOT yet verified: whether `44210` itself
-      -- a `Stencil`/`GenericTemplate` id -- is the same id in every
-      environment. Confirmed true across MacArthur's current environments
-      as of 2026-09-24, but ids like this are environment-specific in
-      general (see the OAuth callback page in the "Fluxx configuration
-      reference" of docs/architecture.md, where the id genuinely does vary
-      per instance). A new
-      deployer must confirm this id still resolves to the intended Q&A page
-      before going live, and re-derive it if it doesn't.
+- [ ] `CurrentConsentLanguage.rb`: the Q&A link is a placeholder
+      (`https://yoursite.invalid/pdc-consent-qa`) and the contact address is
+      MacArthur's; point both at your own consent Q&A and contact before going live.
 
-## Deployment script
+## The deploy model
 
-Deployment is handled by the deploy model; see
+Installing, updating, validating and removing PDC are handled by the deploy model; see
 [deploy/README.md](../deploy/README.md). Its manifest
 ([deploy/pdc-manifest.json](../deploy/pdc-manifest.json)) maps every repo path
 to its Fluxx model, record and type. Secret method bodies are never exported or

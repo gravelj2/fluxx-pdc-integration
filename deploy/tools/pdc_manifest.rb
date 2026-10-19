@@ -65,9 +65,53 @@ def canon(obj, volatile, masked = [])
   end
 end
 
-def stencil_sha(raw, volatile, masked = [])
+# Show/hide conditions inside a stencil's "advanced_query" strings can name a
+# dropdown option by id ([attribute, op, option_id]); ids differ per instance.
+# rewrite_conditions passes each such value through fn.call(attribute, value)
+# and keeps the string untouched when nothing changes.
+def rewrite_conditions(obj, &fn)
+  case obj
+  when Hash
+    obj.each_with_object({}) do |(k, v), h|
+      h[k] = k == 'advanced_query' && v.is_a?(String) ? rewrite_query(v, &fn) : rewrite_conditions(v, &fn)
+    end
+  when Array then obj.map { |v| rewrite_conditions(v, &fn) }
+  else obj
+  end
+end
+
+def rewrite_query(str, &fn)
+  q = (JSON.parse(str) rescue nil)
+  return str unless q.is_a?(Hash)
+  changed = false
+  walk = lambda do |node|
+    next node unless node.is_a?(Array)
+    if node.size == 3 && node.all? { |x| x.is_a?(String) }
+      v = fn.call(node[0], node[2])
+      next node if v == node[2]
+      changed = true
+      next [node[0], node[1], v]
+    end
+    node.map { |x| walk.call(x) }
+  end
+  out = q.merge('conditions' => walk.call(q['conditions']))
+  changed ? JSON.generate(out) : str
+end
+
+# Option ids in model-form conditions, as names ("option:<value>"), per model type
+def option_names(model_type)
+  (scope['stencil_option_ids'] || {}).each_with_object({}) do |(key, ids), h|
+    mt, attr = key.split('.', 2)
+    h[attr] = ids if mt == model_type
+  end
+end
+
+def stencil_sha(raw, volatile, masked = [], model_type = nil)
   return nil if raw.nil? || raw.strip.empty?
-  Digest::SHA256.hexdigest(JSON.generate(canon(JSON.parse(raw), volatile, masked), ascii_only: true))
+  doc = JSON.parse(raw)
+  names = model_type ? option_names(model_type) : {}
+  doc = rewrite_conditions(doc) { |attr, v| names[attr] && names[attr][v] ? "option:#{names[attr][v]}" : v } unless names.empty?
+  Digest::SHA256.hexdigest(JSON.generate(canon(doc, volatile, masked), ascii_only: true))
 end
 
 def scope
@@ -110,10 +154,16 @@ def read_repo(path)
   File.exist?(full) ? File.read(full, encoding: "UTF-8") : nil
 end
 
+# The owned model type whose folder holds path, e.g. pdc-map/pdc-consent/... -> MacModelTypeDynPdcConsent
+def model_type_for_path(path)
+  scope['owned_model_types'].find { |_, v| path.start_with?("#{v['folder']}/") }&.first
+end
+
 def hash_for(section, field, path)
   text = read_repo(path)
   return nil if text.nil?
-  section == 'stencils' && field == 'json' ? stencil_sha(text, scope['stencil_volatile_keys'] || [], scope['stencil_profile_keys'] || []) : sha(text)
+  return sha(text) unless section == 'stencils' && field == 'json'
+  stencil_sha(text, scope['stencil_volatile_keys'] || [], scope['stencil_profile_keys'] || [], model_type_for_path(path))
 end
 
 # Recomputes every *_sha256 from the *_path it sits next to. Returns

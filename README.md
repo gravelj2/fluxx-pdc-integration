@@ -21,7 +21,7 @@ per Fluxx model, because that is the deployment unit:
 | `grant-request/` | `GrantRequest` (core) | Orchestration: consent creation on save, proposal submission on entering the Granted state |
 | `pdc-integration-map/` | `MacModelTypeDynPdcApplicationForm1` | The admin-configured map record: PDC auth/environment, dropdown sync from the PDC API, field-mapping management, creating applications/proposals in PDC |
 | `pdc-mapped-field/` | `MacModelTypeDynPdcMappedField1` | Child field-mapping records (no methods of its own yet — see its README) |
-| `pdc-consent/` | `MacModelTypeDynPDCConsent` | Consent language/versioning, consent stamping (audit trail), shared-data preview |
+| `pdc-consent/` | `MacModelTypeDynPdcConsent` | Consent language/versioning, consent stamping (audit trail), shared-data preview |
 
 Typical flow: staff configure an Integration Map record (dropdowns populated
 from PDC via the `Set … Dropdown Values` methods), map PDC fields to Fluxx
