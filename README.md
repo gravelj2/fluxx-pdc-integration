@@ -4,10 +4,10 @@ Integration between the MacArthur Foundation's Fluxx grants-management system an
 the [Philanthropy Data Commons](https://philanthropydatacommons.org/) (PDC).
 
 Fluxx is vendor-managed: nothing in this repo runs as a normal Ruby application.
-Every artifact here is deployed **by hand (for now) into the Fluxx admin UI** —
-Ruby files as *dynamic model methods/hooks* on a specific Fluxx model, and
-HTML/Liquid files as card blocks or stencil components. A deployment script that
-automates this will eventually live in this repo.
+Ruby files become *dynamic model methods/hooks* on a specific Fluxx model, and
+HTML/Liquid files become card blocks or stencil components. They're installed,
+updated, validated and removed from a **deploy model** inside Fluxx that reads this
+repo; see [deploy/README.md](deploy/README.md).
 
 ## The two components
 
@@ -62,10 +62,11 @@ between the two components.
   method/hook name; methods call each other by name via
   `model.dyn_invoke_for(:"Method Name")`. Renaming a file here without renaming
   the method in Fluxx (and every call site) breaks the integration.
-- **Secrets never live in this repo.** `Get PDC Client Secret.rb` and
-  `Get PDC Client Secret.rb` are placeholders returning `"Not Configured"`.
-  Real secret values are entered only in Fluxx; the future deployment script
-  must inject them from a secret store, never from git.
+- **Secrets never live in this repo.** `Get PDC Client Secret.rb` is a placeholder
+  returning `"Not Configured"`; `Get PDC Client ID.rb` holds MacArthur's client ID,
+  which identifies the client but isn't secret. Each instance enters its own values in
+  Fluxx. The installer never writes either method, and snapshots record only whether
+  they exist.
 - `docs/architecture.md` has the method dependency map; `docs/deployment.md`
   has deployment order and known environment-specific values.
 
@@ -74,5 +75,6 @@ between the two components.
 ```
 pdc-map/         # staff-side Fluxx → PDC (Ruby, one folder per Fluxx model)
 data-explorer/   # grantee-facing PDC → Fluxx component (HTML/JS/Liquid, load order 0–5)
+deploy/          # the in-Fluxx installer (deploy model), manifest and tools
 docs/            # architecture + deployment notes
 ```

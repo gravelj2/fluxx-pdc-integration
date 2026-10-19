@@ -1,8 +1,22 @@
 # Deployment
 
-Until the deployment script exists, everything is deployed manually through the
-Fluxx admin UI. Contents must be copied **verbatim** — file contents here are
-the source of truth for what is pasted into Fluxx.
+The deploy model installs and updates most of PDC from this repo: set it up as
+described in [deploy/README.md](../deploy/README.md), then click **Install**. File
+contents here are the source of truth for what ends up in Fluxx.
+
+Install doesn't yet create the following, so on a new instance they are still set up
+by hand in the Fluxx admin UI (Validate reports each one as MISSING):
+- the three PDC models (Integration Map, Mapped Field, Consent) with their themes and
+  workflows, their forms (`pdc-map/*/stencils/form.json` for reference), and the
+  Consent profile permissions
+- PDC elements on GrantRequest and GenericTemplate forms (Install updates ones that
+  are there), and the `pdc_account_exists` field on those forms
+- the `###PDC_CODE###` block in GrantRequest's `granted` hook (Install updates it once
+  it's there)
+- the real PDC client ID and secret
+
+The rest of this page describes what goes where, which still applies to those manual
+steps.
 
 ## What goes where
 
@@ -75,9 +89,8 @@ choice to drop that word would. Keep "decline" in the negative option's label.
 
 - [ ] Enter real client secrets **only in Fluxx** (`Get PDC Client
       Secret` methods). The repo copies must keep returning `"Not Configured"`.
-- [ ] Replace the temporary inline test client ID in
-      `Get Auth Token from PDC.rb` with the secure-storage lookup (see comments
-      in that file), and configure the production branch (currently `raise`).
+- [x] `Get Auth Token from PDC.rb` reads the client ID and secret from
+      `Get PDC Client ID` / `Get PDC Client Secret`; there's no inline value left.
 - [x] `5. floating-panel.html`: proposals endpoint points at production
       (`api.philanthropydatacommons.org`), matching the OAuth environment in
       `3. oauth.html`. Both browser-side layers now target production so the
