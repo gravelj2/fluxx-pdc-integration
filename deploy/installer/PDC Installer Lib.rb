@@ -266,11 +266,12 @@ lib[:locate_elements] = lambda do |scope, include_text = false|
   found
 end
 
-# The form stencil a theme shows (compiled first, then newest)
+# The form stencil a theme shows: the enabled one (Fluxx marks every stencil
+# compiled, so that says nothing), newest first
 lib[:theme_form] = lambda do |theme|
   Stencil.where(model_type: theme.model_type, model_theme_id: theme.id, deleted_at: nil).to_a
          .select { |st| lib[:form_types].call(st).include?('form') }
-         .max_by { |st| [st.compiled ? 1 : 0, st.updated_at.to_i] }
+         .max_by { |st| [st.enabled ? 1 : 0, st.updated_at.to_i] }
 end
 
 # The first GenericTemplate stencil on a profile's dashboard: UserProfile ->
@@ -503,7 +504,7 @@ lib[:collect] = lambda do |scope, include_bodies|
   owned.each do |mt|
     cands = Stencil.where(model_type: mt, deleted_at: nil).to_a.select { |st| lib[:form_types].call(st).include?('form') }
     next if cands.empty?
-    primary = cands.max_by { |st| [st.compiled ? 1 : 0, st.updated_at.to_i] }
+    primary = cands.max_by { |st| [st.enabled ? 1 : 0, st.updated_at.to_i] }
     if cands.map { |st| lib[:stencil_sha].call(st['json'], volatile, masked) }.uniq.size > 1
       live['warnings'] << "#{cands.size} form stencils for #{mt} with different content (ids #{cands.map(&:id).join(', ')}); compared #{primary.id}"
     end

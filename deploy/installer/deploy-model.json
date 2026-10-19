@@ -32,7 +32,8 @@
     { "name": "PDC_Discover",               "path": "deploy/installer/PDC_Discover.rb" },
     { "name": "PDC_Export_Components",      "path": "deploy/installer/PDC_Export_Components.rb" },
     { "name": "PDC Populate Options",       "path": "deploy/installer/PDC Populate Options.rb" },
-    { "name": "PDC_Results",                "path": "deploy/installer/PDC_Results.rb" }
+    { "name": "PDC_Results",                "path": "deploy/installer/PDC_Results.rb" },
+    { "name": "PDC Keep Deploy Record",     "path": "deploy/installer/PDC Keep Deploy Record.rb", "method_type": "after_destroy" }
   ],
 
   "_state_hook_prefix": "Put before the method call in every generated state hook so the record stays in its previous state (same pattern as the existing check_for_updates state).",

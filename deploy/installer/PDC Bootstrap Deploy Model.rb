@@ -105,10 +105,11 @@ result =
       if mm.nil?
         ModelMethod.create!(model_type: mt, method_type: m['method_type'] || 'method', name: m['name'], unsafe_dyn_method: body)
         log << "method #{m['name']}: created"
-      elsif same.call(mm.unsafe_dyn_method, body)
+      elsif same.call(mm.unsafe_dyn_method, body) && mm.method_type == (m['method_type'] || 'method')
         log << "method #{m['name']}: up to date"
       else
         mm.unsafe_dyn_method = body
+        mm.method_type = m['method_type'] || 'method'
         mm.save!
         log << "method #{m['name']}: updated"
       end
@@ -211,7 +212,7 @@ result =
     end
     form_types = lambda { |st| st.form_type.is_a?(Array) ? st.form_type.map(&:to_s) : st.form_type.to_s.split(/[,\s]+/) }
     stencils = Stencil.where(model_type: mt, deleted_at: nil).to_a
-    target = stencils.select { |st| form_types.call(st).include?('form') }.max_by { |st| [st.compiled ? 1 : 0, st.updated_at.to_i] }
+    target = stencils.select { |st| form_types.call(st).include?('form') }.max_by { |st| [st.enabled ? 1 : 0, st.updated_at.to_i] }
     if target.nil?
       log << "stencil: not found for #{mt} (#{stencils.size} without a form type); create the form in the GUI and click Update Installer"
     else
