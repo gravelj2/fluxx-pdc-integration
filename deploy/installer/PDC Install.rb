@@ -8,15 +8,20 @@
 # updater: point repo_ref at another release and click Install.
 #
 # Never removes anything. Methods, states or buttons it doesn't recognize are
-# left alone: whoever built them owns them. While any PDC model is missing,
-# only the existing PDC models are touched (GrantRequest's PDC hooks need
+# left alone: whoever built them owns them. If a PDC model still can't be set
+# up, nothing outside the PDC models is touched (GrantRequest's PDC hooks need
 # all of them).
 #
+#   models    the three PDC models: kept, brought back if soft-deleted, or
+#             created with their exact names; then their themes (label,
+#             settings, Before New / After Create code), workflows and forms
+#             (from the repo, restricted to the PDC Staff Profile where the
+#             repo copy is restricted), and the Consent permissions for the
+#             PDC Grantee Profile
 #   fields    restore/create fields and static dropdown options; a field
 #             whose type or settings differ is only reported (changing a field
 #             under existing data is unsafe)
 #   methods   restore/create/overwrite (secret methods are never written)
-#   themes    Before New / After Create code
 #   states    restore/create/overwrite settings and hooks
 #   buttons   restore/create/overwrite target, from-states, guard, filter;
 #             a button with no role gets the PDC Event Role chosen here (else
@@ -52,31 +57,6 @@ install = lambda do |log|
   markers = scope['markers']
   required_config = scope['element_required_config'] || {}
 
-  # Install doesn't create the PDC models (or their themes and workflows)
-  # yet. Anything on a PDC model that doesn't exist is skipped, never created
-  # as an orphan, and the model is reported.
-  owned = scope['owned_model_types'].keys
-  present = MachineModelType.where(model_type: owned, deleted_at: nil).pluck(:model_type)
-  missing_models = owned - present
-  missing_models.each { |mt| log['model missing (create it first; its pieces were skipped)'] << mt }
-  on_missing_model = lambda { |item| owned.include?(item['model_type']) && !present.include?(item['model_type']) }
-  b = bundle.dup
-  %w[attributes methods themes states events].each { |k| b[k] = bundle[k].reject { |x| on_missing_model.call(x) } }
-  # GrantRequest's PDC hooks call into the PDC models (e.g. creating a Consent
-  # record on save), so they would break GrantRequest saves without them. With
-  # any PDC model missing, nothing outside the PDC models is touched.
-  unless missing_models.empty?
-    gr_type = scope['grant_request']['model_type']
-    %w[attributes methods].each do |k|
-      held = b[k].select { |x| x['model_type'] == gr_type }
-      held.each { |x| log['waits for the PDC models'] << x['key'] }
-      b[k] = b[k] - held
-    end
-    b['shared_slices'].each { |x| log['waits for the PDC models'] << x['key'] }
-    b['shared_slices'] = []
-    b['stencil_elements'] = []
-  end
-
   # Columns whose value differs from what's wanted. Code compares normalized
   # text, so whitespace-only drift doesn't count.
   diffs = lambda do |rec, desired|
@@ -101,6 +81,160 @@ install = lambda do |log|
     rec = gone || rel.klass.new(attrs)
     rec.deleted_at = nil if gone
     [rec, gone ? 'restored' : 'created']
+  end
+
+  # The PDC models, with their themes, workflows, forms and permissions. Each
+  # is kept if it exists, brought back if it was soft-deleted (same id), or
+  # created. (Deleting a model in Fluxx soft-deletes all its configuration;
+  # un-deleting it only brings back its forms, so the rest is revived here.)
+  owned = scope['owned_model_types'].keys
+  live_or_gone = lambda do |rel|
+    rel.where(deleted_at: nil).first || rel.where.not(deleted_at: nil).order(deleted_at: :desc).first
+  end
+  bundle['models'].each do |m|
+    rec = live_or_gone.call(MachineModelType.where(model_type: m['model_type']))
+    want = { 'name' => m['name'], 'show_in_plus_menu' => m['show_in_plus_menu'] }
+    if rec.nil?
+      rec = MachineModelType.new(want.merge('model_type' => m['model_type']))
+      rec.create_first_theme = true if rec.respond_to?(:create_first_theme=)   # Fluxx adds the theme and its default form
+      rec.save!
+      log['created model'] << m['key']
+    elsif rec.deleted_at.present?
+      rec.deleted_at = nil
+      want.each { |c, v| rec[c] = v }
+      rec.save!
+      log['restored model'] << m['key']
+    else
+      reconcile.call("model #{m['key']}", rec, want)
+    end
+  end
+  theme_flags = %w[external_access_enabled limit_by_user_profile_flag hide_from_theme_switching request_may_be_grantee_user_only]
+  bundle['themes'].each do |t|
+    want = { 'label' => t['label'], 'unsafe_before_new_block' => t['before_new'], 'unsafe_after_create_block' => t['after_create'] }
+    rec = live_or_gone.call(ModelTheme.where(model_type: t['model_type'], name: t['name']))
+    if rec.nil?
+      rec = ModelTheme.new(model_type: t['model_type'], name: t['name'])
+      rec.stencil_name = 'default' if rec.respond_to?(:stencil_name=)
+      how = 'created theme'
+    elsif rec.deleted_at.present?
+      rec.deleted_at = nil
+      how = 'restored theme'
+    end
+    if how
+      want.each { |c, v| rec[c] = v }
+      theme_flags.each { |c| rec[c] = t[c] if rec.has_attribute?(c) && !t[c].nil? }
+      rec.save!
+      log[how] << t['key']
+    else
+      flags = theme_flags.select { |c| rec.has_attribute?(c) && !t[c].nil? }.each_with_object({}) { |c, h| h[c] = t[c] }
+      reconcile.call(t['key'], rec, want.merge(flags))
+    end
+  end
+  Array(bundle['workflows']).each do |w|
+    theme = ModelTheme.where(model_type: w['model_type'], name: w['theme'], deleted_at: nil).first
+    next log['skipped, its theme is missing'] << "workflow #{w['key']}" if theme.nil?
+    rec = live_or_gone.call(MachineWorkflow.where(model_theme_id: theme.id))
+    if rec.nil?
+      MachineWorkflow.create!(model_type: w['model_type'], model_theme_id: theme.id, name: w['name'], workflow_order: 1)
+      log['created workflow'] << w['key']
+    elsif rec.deleted_at.present?
+      rec.deleted_at = nil
+      rec.name = w['name']
+      rec.save!
+      log['restored workflow'] << w['key']
+    else
+      reconcile.call("workflow #{w['key']}", rec, 'name' => w['name'])
+    end
+  end
+  # The models' own forms, from the repo. Profile restrictions in the repo copy
+  # are TRN's; they become the PDC Staff Profile chosen on this record.
+  staff = lib[:selected_profile].call(model, :pdc_staff_profile)
+  profile_keys = scope['stencil_profile_keys'] || []
+  volatile = scope['stencil_volatile_keys'] || []
+  restricted = false
+  map_profiles = nil
+  map_profiles = lambda do |node|
+    case node
+    when Hash
+      node.each_with_object({}) do |(k, v), h|
+        if profile_keys.include?(k) && Array(v).reject { |x| x.to_s.empty? }.any?
+          restricted = true
+          h[k] = staff ? [staff.id.to_s] : v
+        else
+          h[k] = map_profiles.call(v)
+        end
+      end
+    when Array then node.map { |v| map_profiles.call(v) }
+    else node
+    end
+  end
+  Array(bundle['stencils']).each do |sp|
+    theme = ModelTheme.where(model_type: sp['model_type'], deleted_at: nil).order(:id).first
+    next log['skipped, its theme is missing'] << "form #{sp['key']}" if theme.nil?
+    restricted = false
+    doc = map_profiles.call(sp['json'])
+    if restricted && staff.nil?
+      log['note'] << "form #{sp['key']} not written: choose the PDC Staff Profile (it restricts part of the form)"
+      next
+    end
+    raw = JSON.generate(doc, ascii_only: true)
+    st = live_or_gone.call(Stencil.where(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name']))
+    if st.nil?
+      st = Stencil.new(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name'], enabled: true)
+      st.form_type = %w[form list show]
+      lib[:write_stencil].call(st, raw)
+      log['created form'] << sp['key']
+    elsif st.deleted_at.present? || lib[:stencil_sha].call(st['json'], volatile, []) != lib[:stencil_sha].call(raw, volatile, [])
+      how = st.deleted_at.present? ? 'restored form' : 'overwrote'
+      st.deleted_at = nil
+      lib[:write_stencil].call(st, raw)
+      log[how] << "form #{sp['key']}"
+    else
+      log['ok'] << "form #{sp['key']}"
+    end
+  end
+  # Consent permissions for the PDC Grantee Profile
+  grantee = lib[:selected_profile].call(model, :pdc_grantee_profile)
+  if grantee.nil?
+    log['note'] << 'no PDC Grantee Profile chosen, so grantees get no Consent permissions' if Array(bundle['permissions']).any?
+  else
+    Array(bundle['permissions']).each do |pm|
+      key = "#{pm['key']} for #{grantee.name}"
+      rule = UserProfileRule.where(model_type: pm['model_type'], permission_name: pm['permission_name'], user_profile_id: grantee.id).first
+      if rule.nil?
+        UserProfileRule.create!(model_type: pm['model_type'], permission_name: pm['permission_name'], user_profile_id: grantee.id, allowed: pm['allowed'])
+        log['created permission'] << key
+      elsif rule.allowed != pm['allowed']
+        rule.allowed = pm['allowed']
+        rule.save!
+        log['overwrote'] << "#{key} [allowed]"
+      else
+        log['ok'] << key
+      end
+    end
+  end
+
+  # If a PDC model still couldn't be set up, anything on it is skipped (never
+  # created as an orphan) and the model is reported.
+  present = MachineModelType.where(model_type: owned, deleted_at: nil).pluck(:model_type)
+  missing_models = owned - present
+  missing_models.each { |mt| log['model missing (its pieces were skipped)'] << mt }
+  on_missing_model = lambda { |item| owned.include?(item['model_type']) && !present.include?(item['model_type']) }
+  b = bundle.dup
+  %w[attributes methods themes states events].each { |k| b[k] = bundle[k].reject { |x| on_missing_model.call(x) } }
+  # GrantRequest's PDC hooks call into the PDC models (e.g. creating a Consent
+  # record on save), so they would break GrantRequest saves without them. With
+  # any PDC model missing, nothing outside the PDC models is touched.
+  unless missing_models.empty?
+    gr_type = scope['grant_request']['model_type']
+    %w[attributes methods].each do |k|
+      held = b[k].select { |x| x['model_type'] == gr_type }
+      held.each { |x| log['waits for the PDC models'] << x['key'] }
+      b[k] = b[k] - held
+    end
+    b['shared_slices'].each { |x| log['waits for the PDC models'] << x['key'] }
+    b['shared_slices'] = []
+    b['stencil_elements'] = []
   end
 
   # Fields and static dropdown options
@@ -156,16 +290,6 @@ install = lambda do |log|
     want.each { |c, v| rec[c] = v }
     rec.save!
     log[how] << m['key']
-  end
-
-  # Theme hooks (the themes themselves come with the models)
-  b['themes'].each do |t|
-    rec = ModelTheme.where(model_type: t['model_type'], name: t['name'], deleted_at: nil).first
-    if rec.nil?
-      log['theme missing (create the model first)'] << t['key']
-      next
-    end
-    reconcile.call(t['key'], rec, 'unsafe_before_new_block' => t['before_new'], 'unsafe_after_create_block' => t['after_create'])
   end
 
   # States
@@ -383,5 +507,10 @@ copies = plan['forms'].select { |f| f['copy'] }.map do |f|
   { 'table' => 'Stencil', 'key' => "PDC copy of stencil #{f['stencil_id']}",
     'find' => { 'model_type' => f['model_type'], 'model_theme_id' => f['copy']['model_theme_id'], 'name' => f['copy']['name'] } }
 end
-targets = lib[:snapshot_targets].call(bundle, plan['forms'].map { |f| f['stencil_id'] }, copies)
+grantee_for_snapshot = lib[:selected_profile].call(model, :pdc_grantee_profile)
+rules = grantee_for_snapshot ? Array(bundle['permissions']).map do |pm|
+  { 'table' => 'UserProfileRule', 'key' => "#{pm['key']} for #{grantee_for_snapshot.name}",
+    'find' => { 'model_type' => pm['model_type'], 'permission_name' => pm['permission_name'], 'user_profile_id' => grantee_for_snapshot.id } }
+end : []
+targets = lib[:snapshot_targets].call(bundle, plan['forms'].map { |f| f['stencil_id'] }, copies + rules)
 lib[:run_with_snapshots].call(model, 'Install', 'install_results', targets, save_now, install)

@@ -42,6 +42,16 @@ targets = previous ? previous['records'].map { |r| r.slice('table', 'key', 'find
 restore = lambda do |log|
   raise(read_error || 'There is no previous configuration to restore yet') if previous.nil?
   now = Time.now
+  # Soft-delete where the table supports it; otherwise (e.g. a permission rule
+  # Install created) remove the row
+  remove = lambda do |rec|
+    if rec.has_attribute?(:deleted_at)
+      rec.deleted_at = now
+      rec.save!
+    else
+      rec.destroy
+    end
+  end
   # True when the live record no longer matches the last action's
   # after-snapshot (someone edited it since).
   changed_since = lambda do |r|
@@ -124,8 +134,7 @@ restore = lambda do |log|
     if r['id'].nil?
       # Didn't exist before
       if live
-        live.deleted_at = now
-        live.save!
+        remove.call(live)
         log['removed (was not there before)'] << key
       else
         log['ok'] << key
@@ -161,18 +170,17 @@ restore = lambda do |log|
       log['recreated'] << key
     else
       if live && live.id != rec.id && !r['deleted']
-        live.deleted_at = now
-        live.save!
+        remove.call(live)
         log['removed (duplicate of the restored one)'] << "#{key} (id #{live.id})"
       end
       changed = cols.reject { |c, v| rec[c] == v }.keys
-      was_deleted = rec.deleted_at.present?
+      was_deleted = rec.has_attribute?(:deleted_at) && rec.deleted_at.present?
       changed << (r['deleted'] ? 'deleted' : 'un-deleted') if was_deleted != (r['deleted'] ? true : false)
       if changed.empty?
         log['ok'] << key unless r['table'] == 'MachineEvent'
       else
         cols.each { |c, v| rec[c] = v }
-        rec.deleted_at = r['deleted'] ? (rec.deleted_at || Time.parse(r['deleted_at'])) : nil
+        rec.deleted_at = r['deleted'] ? (rec.deleted_at || Time.parse(r['deleted_at'])) : nil if rec.has_attribute?(:deleted_at)
         rec.save!
         log['restored'] << "#{key} [#{changed.join(', ')}]"
       end

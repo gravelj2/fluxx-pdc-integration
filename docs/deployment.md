@@ -4,14 +4,13 @@ The deploy model installs and updates most of PDC from this repo: set it up as
 described in [deploy/README.md](../deploy/README.md), then click **Install**. File
 contents here are the source of truth for what ends up in Fluxx.
 
-Install adds missing PDC elements to the forms of the themes chosen on the deploy model,
-the OAuth callback to the grantee dashboard page, and the `###PDC_CODE###` block to the
-`granted` hook. It doesn't yet create these, so on a new instance they are set up by hand
-in the Fluxx admin UI first (Validate reports them as MISSING or DIFFERS):
-- the three PDC models (Integration Map, Mapped Field, Consent) with their themes,
-  workflows and forms (`pdc-map/*/stencils/form.json` for reference), and the Consent
-  profile permissions
-- the real PDC client ID and secret
+Install sets up everything PDC needs: the three PDC models (with their themes,
+workflows, forms and Consent permissions), their fields, methods, states and buttons,
+the GrantRequest pieces, the PDC component on the forms of the themes chosen on the
+deploy model, the OAuth callback on the grantee dashboard page, and the `###PDC_CODE###`
+block in the `granted` hook. What's left by hand:
+- entering the real PDC client ID and secret
+- moving the added PDC groups to where they belong on each form
 
 The rest of this page describes what goes where, which still applies to those manual
 steps.

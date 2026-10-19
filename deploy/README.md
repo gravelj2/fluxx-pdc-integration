@@ -122,11 +122,14 @@ Where Install adds what's missing:
   the PDC elements from the copy and lists it, so you can switch back to the original.
 - **The `###PDC_CODE###` block** goes at the top of GrantRequest's `granted` hook, so it
   always runs.
-- While any PDC model is missing, Install touches only the PDC models that exist:
+- If a PDC model still can't be set up, Install touches only the PDC models that exist:
   GrantRequest's PDC hooks call into all three, so they wait.
 
-What Install doesn't do yet: create the three PDC models (with their themes, workflows
-and forms) or the Consent profile permissions.
+- **The three PDC models** are kept if they exist, brought back if they were
+  soft-deleted (same ids, so existing records reattach), or created with their exact
+  internal names. Then their themes, workflows and forms (the forms from the repo, with
+  any profile restriction set to the **PDC Staff Profile**), and the Consent permissions
+  (list, view and update their own) for the **PDC Grantee Profile**.
 
 About Restore Previous:
 - A run that changes nothing doesn't replace what Restore Previous goes back to, but any

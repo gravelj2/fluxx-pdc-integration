@@ -793,10 +793,13 @@ end
 # and deleted state, never their body.
 
 snapshot_cols = {
+  'MachineModelType' => %w[name show_in_plus_menu],
+  'MachineWorkflow' => %w[name],
+  'UserProfileRule' => %w[allowed],
   'ModelAttribute' => %w[description attribute_type multi_allowed value_model_type],
   'ModelAttributeValue' => %w[description display_order retired],
   'ModelMethod' => %w[method_type unsafe_dyn_method],
-  'ModelTheme' => %w[unsafe_before_new_block unsafe_after_create_block],
+  'ModelTheme' => %w[label unsafe_before_new_block unsafe_after_create_block],
   'MachineState' => %w[description state_type state_order allowed_roles unsafe_before_validation_enter unsafe_after_enter],
   'MachineEvent' => %w[name is_validation_suppressed guard_strategy filter unsafe_guard],
   'Stencil' => %w[json enabled]
@@ -808,6 +811,9 @@ lib[:snapshot_cols] = snapshot_cols
 # fields right now, plus any extra ids (e.g. those in an earlier snapshot).
 lib[:snapshot_targets] = lambda do |bundle, extra_stencil_ids = [], extra_targets = []|
   t = []
+  Array(bundle['models']).each do |m|
+    t << { 'table' => 'MachineModelType', 'key' => "model #{m['model_type']}", 'find' => { 'model_type' => m['model_type'] } }
+  end
   bundle['attributes'].each do |a|
     t << { 'table' => 'ModelAttribute', 'key' => a['key'], 'find' => { 'model_type' => a['model_type'], 'name' => a['name'] } }
     next unless a['options'].is_a?(Array)
@@ -821,7 +827,10 @@ lib[:snapshot_targets] = lambda do |bundle, extra_stencil_ids = [], extra_target
          .merge(m['secret'] ? { 'secret' => true } : {})
   end
   bundle['themes'].each do |th|
-    t << { 'table' => 'ModelTheme', 'key' => th['key'], 'cols_only' => true, 'find' => { 'model_type' => th['model_type'], 'name' => th['name'] } }
+    t << { 'table' => 'ModelTheme', 'key' => th['key'], 'find' => { 'model_type' => th['model_type'], 'name' => th['name'] } }
+  end
+  Array(bundle['workflows']).each do |w|
+    t << { 'table' => 'MachineWorkflow', 'key' => "workflow #{w['key']}", 'find' => { 'model_type' => w['model_type'], 'theme' => w['theme'] } }
   end
   bundle['states'].each do |s|
     t << { 'table' => 'MachineState', 'key' => s['key'], 'find' => { 'model_type' => s['model_type'], 'name' => s['name'] } }
@@ -845,6 +854,11 @@ lib[:snapshot_targets] = lambda do |bundle, extra_stencil_ids = [], extra_target
   (ids + extra_stencil_ids).uniq.sort.each do |id|
     t << { 'table' => 'Stencil', 'key' => "stencil #{id}", 'find' => { 'id' => id } }
   end
+  # The PDC models' own forms (by model and name: their ids aren't known
+  # before the models exist)
+  Array(bundle['stencils']).each do |st|
+    t << { 'table' => 'Stencil', 'key' => "form #{st['key']}", 'find' => { 'model_type' => st['model_type'], 'name' => st['name'] } }
+  end
   t + extra_targets
 end
 
@@ -860,7 +874,13 @@ lib[:snapshot_scope] = lambda do |target|
   case target['table']
   when 'Stencil'
     # By id, or (for a PDC copy that may not exist yet) by theme and name
-    f['id'] ? Stencil.where(id: f['id']) : Stencil.where(model_type: f['model_type'], model_theme_id: f['model_theme_id'], name: f['name'])
+    f['id'] ? Stencil.where(id: f['id']) : Stencil.where(f.slice('model_type', 'model_theme_id', 'name'))
+  when 'MachineWorkflow'
+    themes = ModelTheme.where(model_type: f['model_type'], name: f['theme'])
+    theme = themes.where(deleted_at: nil).first || themes.where.not(deleted_at: nil).order(deleted_at: :desc).first
+    theme && MachineWorkflow.where(model_theme_id: theme.id)
+  when 'UserProfileRule'
+    UserProfileRule.where(f.slice('model_type', 'permission_name', 'user_profile_id'))
   when 'ModelAttributeValue'
     # The live field, else its latest soft-deleted one: options stay findable
     # while their field is removed (e.g. after Uninstall)
@@ -881,6 +901,7 @@ lib[:snapshot_find] = lambda do |target, live_only = false|
   rel = lib[:snapshot_scope].call(target)
   next nil if rel.nil?
   next rel.first if target['table'] == 'Stencil' && target['find']['id']
+  next rel.first unless rel.klass.column_names.include?('deleted_at')
   live = rel.where(deleted_at: nil).first
   next live if live || live_only
   rel.where.not(deleted_at: nil).order(deleted_at: :desc).first
