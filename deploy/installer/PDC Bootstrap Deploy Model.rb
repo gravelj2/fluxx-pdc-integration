@@ -175,6 +175,24 @@ result =
                          'padding_left' => '7', 'padding_right' => '7', 'border_top_enabled' => true,
                          'border_bottom_enabled' => true, 'border_left_enabled' => true, 'border_right_enabled' => true },
           'uid' => SecureRandom.uuid, 'elements' => el['elements'].map { |c| build.call(c) } }
+      elsif el['raw']
+        # An element copied as Fluxx stores it (e.g. a documents list): fresh
+        # uids, and filters pointed at this model type
+        fresh = nil
+        fresh = lambda do |node|
+          case node
+          when Hash
+            node.each_with_object({}) do |(k, v), h|
+              h[k] = if k == 'uid' then SecureRandom.uuid
+                     elsif k == 'advanced_query' && v.is_a?(String) then v.gsub(/"relationship_filter_model_type":"[^"]*"/, %("relationship_filter_model_type":"#{mt}"))
+                     else fresh.call(v)
+                     end
+            end
+          when Array then node.map { |v| fresh.call(v) }
+          else node
+          end
+        end
+        fresh.call(el['raw'])
       elsif el['field']
         raise "layout field #{el['field']} is not an attribute on #{mt}" unless attr_types.key?(el['field'])
         config = { 'label' => el['label'], 'required' => '0' }
