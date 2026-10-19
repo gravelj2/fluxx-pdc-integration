@@ -41,6 +41,16 @@ install = lambda do |log|
   markers = scope['markers']
   required_config = scope['element_required_config'] || {}
 
+  # Install doesn't create the PDC models (or their themes and workflows)
+  # yet. Anything on a PDC model that doesn't exist is skipped, never created
+  # as an orphan, and the model is reported.
+  owned = scope['owned_model_types'].keys
+  present = MachineModelType.where(model_type: owned, deleted_at: nil).pluck(:model_type)
+  (owned - present).each { |mt| log['model missing (create it first; its pieces were skipped)'] << mt }
+  on_missing_model = lambda { |item| owned.include?(item['model_type']) && !present.include?(item['model_type']) }
+  b = bundle.dup
+  %w[attributes methods themes states events].each { |k| b[k] = bundle[k].reject { |x| on_missing_model.call(x) } }
+
   # Columns whose value differs from what's wanted. Code compares normalized
   # text, so whitespace-only drift doesn't count.
   diffs = lambda do |rec, desired|
@@ -68,7 +78,7 @@ install = lambda do |log|
   end
 
   # Fields and static dropdown options
-  bundle['attributes'].each do |a|
+  b['attributes'].each do |a|
     rel = ModelAttribute.where(model_type: a['model_type'], name: a['name'])
     live = rel.where(deleted_at: nil).first
     want = { 'description' => a['description'], 'attribute_type' => a['attribute_type'],
@@ -100,7 +110,7 @@ install = lambda do |log|
 
   # Methods. Secret methods are never written; a soft-deleted one is only
   # un-deleted (its value stays as it was).
-  bundle['methods'].each do |m|
+  b['methods'].each do |m|
     rel = ModelMethod.where(model_type: m['model_type'], name: m['name'])
     if m['secret']
       next log['ok'] << m['key'] if rel.where(deleted_at: nil).exists?
@@ -123,7 +133,7 @@ install = lambda do |log|
   end
 
   # Theme hooks (the themes themselves come with the models)
-  bundle['themes'].each do |t|
+  b['themes'].each do |t|
     rec = ModelTheme.where(model_type: t['model_type'], name: t['name'], deleted_at: nil).first
     if rec.nil?
       log['theme missing (create the model first)'] << t['key']
@@ -133,7 +143,7 @@ install = lambda do |log|
   end
 
   # States
-  bundle['states'].each do |s|
+  b['states'].each do |s|
     rel = MachineState.where(model_type: s['model_type'], name: s['name'])
     want = { 'description' => s['description'], 'state_type' => s['state_type'], 'state_order' => s['state_order'],
              'allowed_roles' => s['allowed_roles'], 'unsafe_before_validation_enter' => s['before_validation_enter'],
@@ -159,7 +169,7 @@ install = lambda do |log|
       common && Role.find_by(id: common.first)
     end
   end
-  bundle['events'].each do |e|
+  b['events'].each do |e|
     theme = ModelTheme.where(model_type: e['model_type'], name: e['theme'], deleted_at: nil).first
     wf = theme && MachineWorkflow.where(model_theme_id: theme.id, deleted_at: nil).first
     if wf.nil?
@@ -181,8 +191,12 @@ install = lambda do |log|
         MachineEventFromState.where(machine_event_id: ev.id).destroy_all
         want_from.each { |id, order| MachineEventFromState.create!(machine_event_id: ev.id, from_state_id: id, button_order: order) }
       end
-      if MachineEventRole.where(machine_event_id: ev.id).empty? && (role = pick_role.call(wf))
-        MachineEventRole.create!(machine_event_id: ev.id, role_id: role.id)
+      if MachineEventRole.where(machine_event_id: ev.id).empty?
+        if (role = pick_role.call(wf))
+          MachineEventRole.create!(machine_event_id: ev.id, role_id: role.id)
+        else
+          log['button has no role (choose PDC Event Role, then Install again)'] << e['key']
+        end
       end
     end
     rel = MachineEvent.where(machine_workflow_id: wf.id, button_name: e['button_name'])
@@ -203,7 +217,7 @@ install = lambda do |log|
 
   # The PDC block inside GrantRequest's shared state hooks (only replaced
   # when its markers are there; the rest of the hook isn't PDC's)
-  bundle['shared_slices'].each do |x|
+  b['shared_slices'].each do |x|
     st = MachineState.where(model_type: x['model_type'], name: x['state'], deleted_at: nil).first
     slice = st && lib[:code_slice].call(st[x['field']], markers)
     want = lib[:code_slice].call(x['body'], markers) || x['body']
@@ -219,7 +233,7 @@ install = lambda do |log|
   end
 
   # PDC stencil elements already on forms: replace text and settings in place
-  specs = bundle['stencil_elements']
+  specs = b['stencil_elements']
   located = lib[:locate_elements].call(scope, false)
   # The same string as it appears inside stored JSON: plain, or with < > &
   # escaped the way Rails' to_json writes them.

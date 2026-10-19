@@ -22,8 +22,10 @@ The deploy model stays in place after install. To remove PDC completely, click
 
 1. **Create the deploy model**: any name (TRN uses `PDC Install Config`). Fluxx creates
    its theme, workflow and blank stencils automatically.
-2. **Paste `installer/theme/Before New.rb`** into that theme's Before New block. Set
-   `repo_url` / `repo_ref` at the top; pin a release tag or commit SHA in production.
+2. **Paste `installer/theme/Before New.rb`** into that theme's Before New block. Check
+   the three settings at the top: `repo_url`, `repo_ref` (pin a release tag or commit SHA
+   in production), and `button_role`, the exact name of the role that may click the
+   deploy model's buttons in this Fluxx.
 3. **Create the first record.** Before New downloads `PDC Bootstrap Deploy Model` and
    runs it. That builds the rest of the deploy model from `installer/deploy-model.json`:
    its fields, installer methods, states, buttons and form. What it did shows on the
@@ -117,11 +119,11 @@ paste-in script that embeds what it needs, paste it into a temporary method on t
 deploy model, and run it on the deploy record:
 
 ```bash
-ruby deploy/tools/build_one_off_action.rb install    # also: uninstall, restore
+ruby deploy/tools/build_one_off_action.rb install    # also: validate, uninstall, restore
 ```
 
-`build_one_off_validate.rb` does the same for Validate, and `build_one_off_layout.rb`
-for the bootstrap's fields and form steps. Each script runs the same code as its button
+`build_one_off_layout.rb` does the same for the bootstrap's fields, document type and
+form steps. Each script runs the same code as its button
 and saves the record, so the results show on the form.
 
 ## Updating the manifest (maintainers)

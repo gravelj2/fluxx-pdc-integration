@@ -131,8 +131,15 @@ result =
     # 4. Workflow buttons on the auto-created workflow
     workflow = MachineWorkflow.where(model_type: mt, deleted_at: nil).first
     raise "No workflow for #{mt}; Fluxx normally creates one with the model" if workflow.nil?
-    role = Role.where(name: spec['button_role'], deleted_at: nil).first
-    log << "button role '#{spec['button_role']}' not found; buttons will have no role" if role.nil?
+    # Role from Before New on the first run; on Update Installer, the role the
+    # existing buttons use; else deploy-model.json's default
+    role_name = handoff['button_role']
+    role = role_name.present? ? Role.where(name: role_name, deleted_at: nil).first : nil
+    role ||= Role.where(id: MachineEventRole.where(machine_event_id: MachineEvent.where(machine_workflow_id: workflow.id, deleted_at: nil).select(:id)).select(:role_id)).first
+    role ||= Role.where(name: spec['button_role'], deleted_at: nil).first
+    if role.nil?
+      log << "button role '#{role_name || spec['button_role']}': not found (no one can use the buttons; set button_role in Before New to a role in this Fluxx, or add a role to each button in the workflow editor)"
+    end
     filter = JSON.generate([
       { 'name' => 'advanced_query', 'value' => JSON.generate('group_type' => 'and', 'conditions' => [], 'relationship_filter_model_type' => mt) },
       { 'name' => 'advanced_sort', 'value' => '[]' },
@@ -140,8 +147,14 @@ result =
       { 'name' => 'filter_type', 'value' => 'MachineModel' }
     ])
     spec['events'].each_with_index do |e, i|
-      if MachineEvent.where(machine_workflow_id: workflow.id, button_name: e['button_name'], deleted_at: nil).exists?
-        log << "button #{e['button_name']}: exists"
+      existing = MachineEvent.where(machine_workflow_id: workflow.id, button_name: e['button_name'], deleted_at: nil).first
+      if existing
+        if role && !MachineEventRole.where(machine_event_id: existing.id).exists?
+          MachineEventRole.create!(machine_event_id: existing.id, role_id: role.id)
+          log << "button #{e['button_name']}: role added"
+        else
+          log << "button #{e['button_name']}: exists"
+        end
         next
       end
       ev = MachineEvent.create!(machine_workflow_id: workflow.id, button_name: e['button_name'],

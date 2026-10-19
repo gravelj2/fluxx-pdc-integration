@@ -47,6 +47,7 @@
 
   "stencil_layout": "deploy/installer/stencil/layout.json",
 
+  "_button_role": "Fallback only: Before New's button_role wins on the first run, and Update Installer keeps the role the buttons already use.",
   "button_role": "Admin",
   "events": [
     { "button_name": "Validate",          "to_state": "validate",         "from_states": ["new"] },

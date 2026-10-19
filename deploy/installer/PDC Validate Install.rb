@@ -24,10 +24,12 @@
 require 'json'
 require 'time'
 
-lib = model.dyn_invoke_for(:"PDC Installer Lib")
+lib = model.dyn_invoke_for(:"PDC Installer Lib") unless defined?(lib) && lib
+# A pasted test script embeds the manifest and sets pdc_one_off.
+save_now = defined?(pdc_one_off) && pdc_one_off ? true : false
 record =
   begin
-    manifest = lib[:fetch_repo_json].call(model, 'deploy/pdc-manifest.json')
+    manifest = (defined?(pdc_manifest) && pdc_manifest) || lib[:fetch_repo_json].call(model, 'deploy/pdc-manifest.json')
     # Validate with the scope the manifest was built from, so fingerprints
     # and exclusions always agree with the hashes.
     live = lib[:collect].call(manifest['scope'], false)
@@ -39,5 +41,6 @@ record =
   end
 
 # Inside a workflow-button hook the record is already being saved.
-lib[:store_results].call(model, 'validate_results', record, false)
-JSON.generate(record)
+saved = lib[:store_results].call(model, 'validate_results', record, save_now)
+"PDC Validation (#{record['mode']}; #{saved}): " + Array(record['summary']).map { |x| "#{x['label']} #{x['count']}" }.join(', ') +
+  (record['error'] ? " || #{record['error']}" : '')

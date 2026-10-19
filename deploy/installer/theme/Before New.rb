@@ -16,6 +16,8 @@ require 'cgi'
 
 repo_url = "https://github.com/macfound/fluxx-pdc-integration"
 repo_ref = "main"
+# Role allowed to click the deploy model's buttons (exact name in this Fluxx)
+button_role = "Admin"
 
 if model.class.where(deleted_at: nil).where.not(id: model.id).exists?
   model.delete
@@ -36,7 +38,7 @@ else
     else
       ModelMethod.create!(model_type: model.class.name, method_type: 'method', name: 'PDC Bootstrap Deploy Model', unsafe_dyn_method: body)
     end
-    model.instance_variable_set(:@pdc_bootstrap, { 'repo_url' => repo_url, 'repo_ref' => repo_ref })
+    model.instance_variable_set(:@pdc_bootstrap, { 'repo_url' => repo_url, 'repo_ref' => repo_ref, 'button_role' => button_role })
     model.dyn_invoke_for(:"PDC Bootstrap Deploy Model")
   else
     msg = "PDC bootstrap: could not fetch #{path} at #{repo_ref} (HTTP #{resp.code})"
