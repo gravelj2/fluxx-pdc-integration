@@ -1,8 +1,19 @@
 # Deployment
 
-Until the deployment script exists, everything is deployed manually through the
-Fluxx admin UI. Contents must be copied **verbatim** — file contents here are
-the source of truth for what is pasted into Fluxx.
+The deploy model installs and updates most of PDC from this repo: set it up as
+described in [deploy/README.md](../deploy/README.md), then click **Install**. File
+contents here are the source of truth for what ends up in Fluxx.
+
+Install sets up everything PDC needs: the three PDC models (with their themes,
+workflows, forms and Consent permissions), their fields, methods, states and buttons,
+the GrantRequest pieces, the PDC component on the forms of the themes chosen on the
+deploy model, the OAuth callback on the grantee dashboard page, and the `###PDC_CODE###`
+block in the `granted` hook. What's left by hand:
+- entering the real PDC client ID and secret
+- moving the added PDC groups to where they belong on each form
+
+The rest of this page is reference: where each repo file ends up in Fluxx, how the
+grantee journey behaves, and what to check per environment.
 
 ## What goes where
 
@@ -11,25 +22,10 @@ the source of truth for what is pasted into Fluxx.
 | `pdc-map/grant-request/*.rb` | Methods/hooks on `GrantRequest`. Files named `AfterEnter…` / `PDC After Save…` are lifecycle hooks; the rest are named methods (deployed method name = file name without `.rb`) |
 | `pdc-map/pdc-integration-map/*.rb` | Methods/hooks on `MacModelTypeDynPdcApplicationForm1` (`Before New.rb` is the before-new hook) |
 | `pdc-map/pdc-integration-map/Show Mapped Fields.html` | Liquid block on the Integration Map form |
-| `pdc-map/pdc-consent/*.rb`, `Data Shared.liquid` | Methods / Liquid on `MacModelTypeDynPDCConsent` |
+| `pdc-map/pdc-consent/*.rb`, `Data Shared.liquid` | Methods / Liquid on `MacModelTypeDynPdcConsent` |
 | `data-explorer/0…5 *.html` | Blocks on the grantee-facing form/stencil, in numeric order |
 | `data-explorer/4r. pdc-stencil-readonly.html` | Read-only journey block — see "Read-only journey variant" below |
 | `data-explorer/oauth-callback.html` | Page served at the OAuth redirect URI registered with PDC |
-
-## Order matters
-
-1. **Foundations first** on the Integration Map model: `Get PDC Base URL`,
-   `Get PDC Client ID`, `Get PDC Client Secret`,
-   `Get Auth Token from PDC` — everything else calls these.
-2. **Dropdown/setup methods** next (`Set Opportunity Dropdown Values`,
-   `Set Application Dropdown Values`, `Set PDC Field Model Attribute Choices`,
-   `Set Fluxx Field Model Attribute Choices`), then run them once to populate
-   `ModelAttributeValue` choices.
-3. **Mapping + action methods**, then the consent model methods, then the
-   GrantRequest methods/hooks (they call into all of the above by name).
-4. **Data Explorer blocks 0–5 in order** — block 5 refuses to initialize until
-   block 4's structure-ready signal fires, and it requires the globals from
-   blocks 2 and 3.
 
 ## Read-only journey variant
 
@@ -44,7 +40,7 @@ Use it where the login/launch flow is unwanted.
 - **Do NOT deploy** blocks `2`, `3`, `5`, or `oauth-callback.html` with it — this
   variant runs **no custom JavaScript**. The consent link is native Fluxx
   (`to-modal` + `data-on-success="refreshCaller,close"`).
-- The consent step still needs the `MacModelTypeDynPDCConsent` model deployed so
+- The consent step still needs the `MacModelTypeDynPdcConsent` model deployed so
   the `dyn_related` Liquid resolves and the modal link works.
 
 ## Consent step states
@@ -75,9 +71,8 @@ choice to drop that word would. Keep "decline" in the negative option's label.
 
 - [ ] Enter real client secrets **only in Fluxx** (`Get PDC Client
       Secret` methods). The repo copies must keep returning `"Not Configured"`.
-- [ ] Replace the temporary inline test client ID in
-      `Get Auth Token from PDC.rb` with the secure-storage lookup (see comments
-      in that file), and configure the production branch (currently `raise`).
+- [x] `Get Auth Token from PDC.rb` reads the client ID and secret from
+      `Get PDC Client ID` / `Get PDC Client Secret`; there's no inline value left.
 - [x] `5. floating-panel.html`: proposals endpoint points at production
       (`api.philanthropydatacommons.org`), matching the OAuth environment in
       `3. oauth.html`. Both browser-side layers now target production so the
@@ -87,22 +82,14 @@ choice to drop that word would. Keep "decline" in the negative option's label.
       URL as the redirect URI with PDC.
 - [ ] `Get PDC Base URL.rb`: confirm `ClientConfiguration` id 47 exists in the
       target instance (environment detection depends on it).
-- [ ] `CurrentConsentLanguage.rb`: the Q&A link now uses a relative URL
-      (`/show/generic_templates/44210`), so it resolves against whatever
-      Fluxx instance actually serves the page -- the old hardcoded-preprod-
-      domain bug is fixed. What's NOT yet verified: whether `44210` itself
-      -- a `Stencil`/`GenericTemplate` id -- is the same id in every
-      environment. Confirmed true across MacArthur's current environments
-      as of 2026-09-24, but ids like this are environment-specific in
-      general (see the OAuth-callback Generic Template discovery in
-      docs/roadmap.md, where the id genuinely does vary per instance). A new
-      deployer must confirm this id still resolves to the intended Q&A page
-      before going live, and re-derive it if it doesn't.
+- [ ] `CurrentConsentLanguage.rb`: the Q&A link is a placeholder
+      (`https://yoursite.invalid/pdc-consent-qa`) and the contact address is
+      MacArthur's; point both at your own consent Q&A and contact before going live.
 
-## Notes for the future deployment script
+## The deploy model
 
-- Deployment unit is (Fluxx model, method name, file body). A machine-readable
-  manifest mapping repo paths → model + method name + type (method / hook /
-  liquid block / stencil block) is the natural next step.
-- Secrets should be injected at deploy time from a secret store, overriding the
-  placeholder bodies of the two client-secret methods.
+Installing, updating, validating and removing PDC are handled by the deploy model; see
+[deploy/README.md](../deploy/README.md). Its manifest
+([deploy/pdc-manifest.json](../deploy/pdc-manifest.json)) maps every repo path
+to its Fluxx model, record and type. Secret method bodies are never exported or
+installed from the repo; set them in Fluxx directly.

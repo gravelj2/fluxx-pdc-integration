@@ -1,0 +1,226 @@
+# PDC Restore Previous
+#
+# The Restore Previous button on the deploy model. Puts every PDC component
+# back the way previous_configuration recorded it (the snapshot Install,
+# Uninstall or an earlier Restore took before changing anything):
+#   - a component that existed then gets its code and settings back, and is
+#     un-deleted if it was soft-deleted since (same id, so saved answers and
+#     links keep working); one that was hard-deleted is recreated
+#   - a component that didn't exist then is soft-deleted
+#   - forms that held PDC elements get their saved JSON back
+#   - buttons get their target, from-states and roles back
+# Anything changed by someone else since the last action (it no longer
+# matches current_configuration's snapshot) is left alone and listed.
+# Needs no repo access. Restore takes its own snapshot first, so clicking it
+# again undoes the restore. Results go to restore_results.
+
+require 'json'
+require 'time'
+
+lib = model.dyn_invoke_for(:"PDC Installer Lib") unless defined?(lib) && lib
+save_now = defined?(pdc_one_off) && pdc_one_off ? true : false
+
+read_error = nil
+previous = begin
+  lib[:read_snapshot].call(model, 'previous_configuration')
+rescue => e
+  read_error = e.message
+  nil
+end
+# The after-snapshot of the last action: anything that differs from it now was
+# changed by someone since, and isn't overwritten.
+latest_error = nil
+latest = begin
+  lib[:read_snapshot].call(model, 'current_configuration')
+rescue => e
+  latest_error = e.message
+  nil
+end
+latest_by_key = latest ? latest['records'].each_with_object({}) { |r, h| h[r['key']] = r } : {}
+targets = previous ? previous['records'].map { |r| r.slice('table', 'key', 'find', 'secret', 'cols_only', 'only_cols') } : []
+
+restore = lambda do |log|
+  raise(read_error || 'There is no previous configuration to restore yet') if previous.nil?
+  now = Time.now
+  # Soft-delete where the table supports it; otherwise (e.g. a permission rule
+  # Install created) remove the row
+  remove = lambda do |rec|
+    if rec.has_attribute?(:deleted_at)
+      rec.deleted_at = now
+      rec.save!
+    else
+      rec.destroy
+    end
+  end
+  # True when the live record no longer matches the last action's
+  # after-snapshot (someone edited it since).
+  changed_since = lambda do |r|
+    after = latest_by_key[r['key']]
+    next false if after.nil?
+    live = lib[:snapshot_find].call(r)
+    next !after['id'].nil? if live.nil?
+    if after['id'].nil?
+      # It didn't exist after the last action; a live one was created since
+      next !(live.has_attribute?(:deleted_at) && live.deleted_at.present?)
+    end
+    next true if live.id != after['id']
+    live_deleted = live.has_attribute?(:deleted_at) && live.deleted_at.present?
+    next true if live_deleted != (after['deleted'] ? true : false)
+    next true if (after['cols'] || {}).any? { |c, v| live[c] != v }
+    r['table'] == 'MachineEvent' && after['links'] && lib[:event_links].call(live) != after['links']
+  end
+  # Records in dependency order, so fields exist before their options and
+  # states before the buttons that point at them. Removals of things that
+  # didn't exist before run afterwards in reverse, so options go before their
+  # field.
+  removals = previous['records'].select { |r| r['id'].nil? && r['table'] != 'Stencil' && !r['cols_only'] }
+  (previous['records'] - removals + removals.reverse).each do |r|
+    key = r['key']
+    klass = lib[:snapshot_class].call(r['table'])
+    cols = r['cols'] || {}
+    if changed_since.call(r)
+      log['review: changed since the last action, left alone'] << key
+      next
+    end
+
+    if r['table'] == 'Stencil'
+      st = lib[:snapshot_find].call(r)
+      if r['id'].nil?
+        # A form that didn't exist before (a PDC copy): remove it
+        if st && st.deleted_at.nil?
+          st.deleted_at = now
+          st.save!
+          log['removed (was not there before)'] << key
+        else
+          log['ok'] << key
+        end
+      elsif st.nil?
+        log['review: form not found'] << key
+      else
+        changed = []
+        changed << 'json' if st['json'].to_s != cols['json'].to_s
+        changed << 'enabled' if cols.key?('enabled') && st.enabled != cols['enabled']
+        changed << 'un-deleted' if st.deleted_at.present? && !r['deleted']
+        if changed.empty?
+          log['ok'] << key
+        else
+          st.enabled = cols['enabled'] if cols.key?('enabled')
+          st.deleted_at = nil if st.deleted_at.present? && !r['deleted']
+          changed.include?('json') ? lib[:write_stencil].call(st, cols['json']) : st.save!
+          log['restored form'] << "#{key} [#{changed.join(', ')}]"
+        end
+      end
+      next
+    end
+
+    if r['cols_only']
+      rec = lib[:snapshot_find].call(r, true)
+      if rec.nil? || r['id'].nil?
+        log['review: not found'] << key
+        next
+      end
+      changed = cols.reject { |c, v| rec[c] == v }.keys
+      if changed.empty?
+        log['ok'] << key
+      else
+        changed.each { |c| rec[c] = cols[c] }
+        rec.save!
+        log['restored'] << "#{key} [#{changed.join(', ')}]"
+      end
+      next
+    end
+
+    live = lib[:snapshot_find].call(r, true)
+    if r['id'].nil?
+      # Didn't exist before
+      if live
+        remove.call(live)
+        log['removed (was not there before)'] << key
+      else
+        log['ok'] << key
+      end
+      next
+    end
+
+    rec = klass.find_by(id: r['id'])
+    changed = []
+    if rec.nil?
+      if r['deleted']
+        log['ok'] << key
+        next
+      end
+      if r['secret']
+        log['review: secret method was hard-deleted; re-enter it by hand'] << key
+        next
+      end
+      scope = lib[:snapshot_scope].call(r)
+      if scope.nil?
+        log['review: could not recreate, its field or workflow is missing'] << key
+        next
+      end
+      attrs = scope.where_values_hash.merge(cols)
+      if r['table'] == 'MachineEvent' && r['links']
+        l = r['links']
+        attrs['to_state_id'] = MachineState.where(id: l['to_state_id']).exists? ? l['to_state_id'] :
+                                 MachineState.where(model_type: r['find']['model_type'], name: l['to_state'], deleted_at: nil).first&.id
+      end
+      rec = klass.new(attrs)
+      rec.save!
+      changed = ['recreated']
+      log['recreated'] << key
+    else
+      if live && live.id != rec.id && !r['deleted']
+        remove.call(live)
+        log['removed (duplicate of the restored one)'] << "#{key} (id #{live.id})"
+      end
+      changed = cols.reject { |c, v| rec[c] == v }.keys
+      was_deleted = rec.has_attribute?(:deleted_at) && rec.deleted_at.present?
+      changed << (r['deleted'] ? 'deleted' : 'un-deleted') if was_deleted != (r['deleted'] ? true : false)
+      if changed.empty?
+        log['ok'] << key unless r['table'] == 'MachineEvent'
+      else
+        cols.each { |c, v| rec[c] = v }
+        rec.deleted_at = r['deleted'] ? (rec.deleted_at || Time.parse(r['deleted_at'])) : nil if rec.has_attribute?(:deleted_at)
+        rec.save!
+        log['restored'] << "#{key} [#{changed.join(', ')}]"
+      end
+    end
+
+    # Buttons: target, from-states and roles, by state name
+    next unless r['table'] == 'MachineEvent' && r['links'] && !r['deleted']
+    mt = r['find']['model_type']
+    # The same state row if it still exists (deleted or not), else by name
+    sid = lambda do |name, id|
+      id && MachineState.where(id: id).exists? ? id : MachineState.where(model_type: mt, name: name, deleted_at: nil).first&.id
+    end
+    links = r['links']
+    fixed = []
+    to_id = sid.call(links['to_state'], links['to_state_id'])
+    if to_id && rec.to_state_id != to_id
+      rec.to_state_id = to_id
+      rec.save!
+      fixed << 'target'
+    end
+    want_from = links['from'].map { |name, order, id| [sid.call(name, id), order] }.reject { |id, _| id.nil? }.sort
+    have_from = MachineEventFromState.where(machine_event_id: rec.id).map { |f| [f.from_state_id, f.button_order] }.sort
+    if have_from != want_from
+      MachineEventFromState.where(machine_event_id: rec.id).destroy_all
+      want_from.each { |id, order| MachineEventFromState.create!(machine_event_id: rec.id, from_state_id: id, button_order: order) }
+      fixed << 'from-states'
+    end
+    have_roles = MachineEventRole.where(machine_event_id: rec.id).pluck(:role_id).sort
+    if have_roles != links['roles']
+      MachineEventRole.where(machine_event_id: rec.id).destroy_all
+      links['roles'].each { |rid| MachineEventRole.create!(machine_event_id: rec.id, role_id: rid) }
+      fixed << 'roles'
+    end
+    fixed.empty? ? (log['ok'] << key if changed.empty?) : log['restored'] << "#{key} [#{fixed.join(', ')}]"
+  end
+
+  warnings = []
+  warnings << "The last action's after-snapshot couldn't be read (#{latest_error}), so changes made since then weren't checked" if latest.nil? && model.respond_to?(:current_configuration) && model.current_configuration.present?
+  warnings << "There's no after-snapshot of the last action, so changes made since then weren't checked" if latest.nil? && !(model.respond_to?(:current_configuration) && model.current_configuration.present?)
+  { 'mode' => "back to #{previous['label']} (#{previous['taken_at']})", 'warnings' => warnings }
+end
+
+lib[:run_with_snapshots].call(model, 'Restore Previous', 'restore_results', targets, save_now, restore)
