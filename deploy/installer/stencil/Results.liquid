@@ -21,7 +21,7 @@
 </style>
 {% assign pdc = model.PDC_Results %}
 <div class="pdc-results">
-{% if pdc.snapshots.previous %}<p class="pdc-snapshots"><strong>Restore Previous</strong> goes back to the configuration saved {{ pdc.snapshots.previous.label }} ({{ pdc.snapshots.previous.taken_at }}: {{ pdc.snapshots.previous.components }} components, {{ pdc.snapshots.previous.stencils }} forms).</p>{% endif %}
+{% if pdc.snapshots.previous %}<p class="pdc-snapshots"><strong>Restore Previous</strong> goes back to the configuration saved {{ pdc.snapshots.previous.label }} ({{ pdc.snapshots.previous.taken_at }}: {{ pdc.snapshots.previous.components }} components, {{ pdc.snapshots.previous.stencils }} forms). Every snapshot is kept under Documents, e.g. <em>{{ pdc.snapshots.previous.document_name }}</em>.</p>{% endif %}
 {% for section in pdc.sections %}
 <details class="pdc-run"{% if forloop.first %} open{% endif %}>
 <summary><strong>{{ section.title }}</strong><span class="pdc-meta">{{ section.mode }} &middot; {{ section.ran_at }}</span><br>{% for s in section.summary %}<span class="pdc-badge pdc-{{ s.tone }}">{{ s.label }}: {{ s.count }}</span>{% endfor %}</summary>

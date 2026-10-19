@@ -16,6 +16,9 @@
     { "name": "current_configuration",  "description": "Current Configuration",  "attribute_type": "text" }
   ],
 
+  "_snapshot_document_type": "Configuration snapshots are saved as text documents of this type. Must match lib[:snapshot_doc_type_name] in PDC Installer Lib.",
+  "snapshot_document_type": "Snapshot",
+
   "methods": [
     { "name": "PDC Bootstrap Deploy Model", "path": "deploy/installer/PDC Bootstrap Deploy Model.rb" },
     { "name": "PDC Installer Lib",          "path": "deploy/installer/PDC Installer Lib.rb" },

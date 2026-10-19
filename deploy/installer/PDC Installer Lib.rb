@@ -5,7 +5,8 @@
 #
 #   lib = model.dyn_invoke_for(:"PDC Installer Lib")
 #
-# Read-only except store_results (results fields) and fits (always rolled back).
+# Read-only except store_results (results fields), snapshot documents, and
+# the permission probe (always rolled back).
 #
 # The normalize/hash rules below MUST stay identical to the ones in
 # deploy/tools/pdc_manifest.rb, or every body will report DIFFERS.
@@ -629,8 +630,12 @@ end
 # ---------------------------------------------------------------------------
 #
 # Install, Uninstall and Restore Previous each save a snapshot of every PDC
-# component before they change anything (previous_configuration) and after
-# (current_configuration). Restore Previous puts previous_configuration back.
+# component before they change anything and after. Each snapshot is a text
+# document (ModelDocument, type "Snapshot") on the deploy record, so size
+# isn't a concern (the GrantRequest forms alone are ~1.6 MB) and every
+# snapshot is kept. previous_configuration / current_configuration hold a
+# small pointer: the document id plus a readable header. Restore Previous
+# follows previous_configuration's pointer.
 #
 # A snapshot is a list of records. Each one names a component by its natural
 # key ('find'), and holds its id, whether it was soft-deleted, and the
@@ -754,43 +759,57 @@ lib[:take_snapshot] = lambda do |targets, label|
   { 'format' => 1, 'label' => label, 'taken_at' => Time.now.utc.iso8601, 'records' => records }
 end
 
-# A snapshot as stored in the field: a small readable header for the card,
-# plus the full snapshot compressed.
-lib[:snapshot_value] = lambda do |snap|
+lib[:snapshot_doc_type_name] = 'Snapshot'
+
+# The deploy model's Snapshot document type, created if it's missing.
+lib[:snapshot_doc_type] = lambda do |deploy_model|
+  mt = deploy_model.class.name
+  name = lib[:snapshot_doc_type_name]
+  dt = ModelDocumentType.where(model_type: mt, name: name).where('retired IS NULL OR retired = ?', false).order(:id).first
+  dt || ModelDocumentType.create!(model_type: mt, name: name, doc_label: 'default', permission_name: 'read_only',
+                                  model_theme_id: ModelTheme.where(model_type: mt, deleted_at: nil).order(:id).first&.id)
+end
+
+# Text documents are shown as HTML in Fluxx, and snapshots hold form HTML and
+# scripts, so the JSON is stored HTML-escaped inside <pre>: it displays as
+# readable JSON and nothing in it runs.
+lib[:snapshot_text] = lambda { |snap| "<pre>#{CGI.escapeHTML(JSON.pretty_generate(snap))}</pre>" }
+lib[:snapshot_parse] = lambda do |text|
+  JSON.parse(CGI.unescapeHTML(text.to_s.sub(/\A\s*<pre>/, '').sub(%r{</pre>\s*\z}, '')))
+end
+
+# Saves a snapshot as a new document, checks it reads back identical, and
+# returns the pointer to store in previous_ / current_configuration.
+lib[:save_snapshot] = lambda do |deploy_model, snap, repo_ref|
   recs = snap['records']
   meta = { 'label' => snap['label'], 'taken_at' => snap['taken_at'],
            'components' => recs.count { |r| r['id'] && !r['deleted'] && r['table'] != 'Stencil' },
            'stencils' => recs.count { |r| r['table'] == 'Stencil' && r['id'] } }
-  packed = lib[:pack_export].call(snap)
-  JSON.generate('meta' => meta.merge('kb' => (packed.bytesize / 1024.0).round(1)), 'data' => packed)
+  name = "PDC snapshot #{Time.parse(snap['taken_at']).utc.strftime('%Y-%m-%d %H:%M:%S')} UTC #{snap['label']} (#{repo_ref}).json"
+  dt = lib[:snapshot_doc_type].call(deploy_model)
+  text = lib[:snapshot_text].call(snap)
+  doc = ModelDocument.create!(documentable: deploy_model, model_document_type_id: dt.id, document_type: 'text',
+                              document_text: text, document_file_name: name, doc_label: dt.doc_label || 'default',
+                              document_description: "#{meta['components']} components, #{meta['stencils']} forms")
+  back = ModelDocument.find(doc.id).document_text.to_s
+  unless back == text && lib[:snapshot_parse].call(back) == snap
+    doc.destroy rescue nil
+    raise "snapshot document #{doc.id} did not read back intact, so nothing was changed"
+  end
+  JSON.generate('meta' => meta.merge('document_id' => doc.id, 'document_name' => name, 'kb' => (text.bytesize / 1024.0).round),
+                'document_id' => doc.id)
 end
 
-lib[:unpack_export] = lambda do |str|
-  raw = str.to_s[/PDCEXPORT1:([A-Za-z0-9+\/=]+)/, 1]
-  raise 'no snapshot data found' if raw.nil?
-  JSON.parse(Zlib::Inflate.inflate(Base64.decode64(raw)).force_encoding('UTF-8'))
-end
-
+# The snapshot a pointer field refers to, or nil if there is none.
 lib[:read_snapshot] = lambda do |deploy_model, field|
   next nil unless deploy_model.respond_to?(field)
   raw = deploy_model.public_send(field).to_s
   next nil if raw.strip.empty?
-  lib[:unpack_export].call(JSON.parse(raw)['data'])
-end
-
-# Saves value to field on a fresh copy of the record inside a savepoint that
-# is always rolled back, then reads it back: true if the field holds it
-# intact. Nothing is kept, so it is safe inside a button hook.
-lib[:fits] = lambda do |deploy_model, field, value|
-  ok = false
-  ActiveRecord::Base.transaction(requires_new: true) do
-    fresh = deploy_model.class.find(deploy_model.id)
-    fresh.public_send("#{field}=", value)
-    fresh.save!
-    ok = deploy_model.class.find(deploy_model.id).public_send(field).to_s == value
-    raise ActiveRecord::Rollback
-  end
-  ok
+  id = (JSON.parse(raw)['document_id'] rescue nil)
+  raise "#{field} doesn't point to a snapshot document" if id.nil?
+  doc = ModelDocument.where(id: id).first
+  raise "snapshot document #{id} (from #{field}) no longer exists" if doc.nil? || (doc.respond_to?(:deleted_at) && doc.deleted_at.present?)
+  lib[:snapshot_parse].call(doc.document_text)
 end
 
 # Raises unless this user can save custom Ruby (tested inside a savepoint
@@ -811,11 +830,12 @@ end
 
 # The frame every changing action runs in:
 #   1. stop unless this user can save custom Ruby
-#   2. snapshot everything in targets, and stop unless the snapshot fits in
-#      previous_configuration (nothing has changed yet)
+#   2. snapshot everything in targets to a document, and stop unless it reads
+#      back intact (nothing has changed yet)
 #   3. work.call(log) does the changes, adding { status => [keys] } to log;
 #      it may return extra fields for the results record
-#   4. snapshot again; store both snapshots and the results record
+#   4. snapshot again; point previous_ / current_configuration at the two
+#      documents, and store the results record
 # Inside a button hook the record is saved by Fluxx afterwards; a pasted
 # test script passes save_now = true.
 lib[:run_with_snapshots] = lambda do |deploy_model, title, results_field, targets, save_now, work|
@@ -827,18 +847,21 @@ lib[:run_with_snapshots] = lambda do |deploy_model, title, results_field, target
       raise "This deploy model has no #{f} field; click Update Installer first" unless deploy_model.respond_to?("#{f}=")
     end
     lib[:require_ruby_access].call(deploy_model)
-    value = lib[:snapshot_value].call(lib[:take_snapshot].call(targets, "before #{title}"))
-    unless lib[:fits].call(deploy_model, 'previous_configuration', value)
-      raise "The configuration snapshot (#{(value.bytesize / 1024.0).round} KB) does not fit in previous_configuration, so nothing was changed"
-    end
-    before_value = value
+    ref = lib[:repo_ref].call(deploy_model)
+    before_value = lib[:save_snapshot].call(deploy_model, lib[:take_snapshot].call(targets, "before #{title}"), ref)
     extra = work.call(log) || {}
   rescue => e
     extra['error'] = "#{e.class}: #{e.message}#{before_value ? ' (some changes may have been made; Restore Previous undoes them)' : ''}"
   end
   if before_value
     deploy_model.previous_configuration = before_value
-    deploy_model.current_configuration = lib[:snapshot_value].call(lib[:take_snapshot].call(targets, "after #{title}"))
+    deploy_model.current_configuration =
+      begin
+        lib[:save_snapshot].call(deploy_model, lib[:take_snapshot].call(targets, "after #{title}"), lib[:repo_ref].call(deploy_model))
+      rescue => e
+        extra['error'] = [extra['error'], "the after-snapshot could not be saved: #{e.class}: #{e.message}"].compact.join('; ')
+        nil
+      end
   end
   mode = extra.delete('mode') || (extra['error'] ? 'failed' : 'done')
   record = lib[:results_record].call(title, mode, lib[:log_entries].call(log), extra)

@@ -82,13 +82,18 @@ Each action saves what it did to a text field on the deploy record, newest shown
 ran, a count per status, and the items under every status except MATCH/ok.
 
 **Configuration snapshots.** Install, Uninstall and Restore Previous save a snapshot of
-the whole PDC configuration before they change anything (`previous_configuration`) and
-after (`current_configuration`). That covers fields and static options, methods, theme
-code, states, buttons (with from-states and roles), the `granted` hook, and every form
-holding PDC elements or fields. Secret methods are recorded only as existing or deleted,
-never their values. Before changing anything, an action also checks that the snapshot
-fits in the field, and stops with nothing changed if it doesn't. The form shows what
-Restore Previous would go back to.
+the whole PDC configuration before they change anything, and another after. That covers
+fields and static options, methods, theme code, states, buttons (with from-states and
+roles), the `granted` hook, and every form holding PDC elements or fields. Secret methods
+are recorded only as existing or deleted, never their values.
+
+Each snapshot is a text document of type **Snapshot** on the deploy record, named like
+`PDC snapshot 2026-10-19 14:05:00 UTC before Install (main).json`. All of them are kept
+(the GrantRequest forms make each one 1–3 MB). `previous_configuration` and
+`current_configuration` hold just a pointer to the latest before and after documents, and
+Restore Previous follows `previous_configuration`. If a snapshot doesn't read back
+intact, the action stops with nothing changed. Deleting the deploy model removes its
+documents, so download the last snapshot first if you may need it.
 
 What Install and Uninstall can't do yet:
 - Install doesn't add or move PDC elements on forms. It reports a missing one, and

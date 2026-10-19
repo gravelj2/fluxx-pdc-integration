@@ -1,8 +1,8 @@
 # PDC Bootstrap Deploy Model
 #
 # Builds (or refreshes) the deploy model itself from deploy/installer/
-# deploy-model.json in the repo: its attributes, installer methods, states,
-# workflow buttons, and its form (stencil/layout.json overwrites the stencil
+# deploy-model.json in the repo: its attributes, snapshot document type,
+# installer methods, states, workflow buttons, and its form (stencil/layout.json overwrites the stencil
 # Fluxx created). Runs on whatever model type it's attached to
 # (model.class), so the deploy model's name doesn't matter.
 #
@@ -79,6 +79,17 @@ result =
                                attribute_type: a['attribute_type'], multi_allowed: false)
         log << "attribute #{a['name']}: created"
       end
+    end
+
+    # Document type for configuration snapshots (Install, Uninstall and
+    # Restore Previous save each snapshot as a text document of this type)
+    dt_name = spec['snapshot_document_type']
+    if ModelDocumentType.where(model_type: mt, name: dt_name).where('retired IS NULL OR retired = ?', false).exists?
+      log << "document type #{dt_name}: exists"
+    else
+      ModelDocumentType.create!(model_type: mt, name: dt_name, doc_label: 'default', permission_name: 'read_only',
+                                model_theme_id: ModelTheme.where(model_type: mt, deleted_at: nil).order(:id).first&.id)
+      log << "document type #{dt_name}: created"
     end
 
     # 2. Installer methods (bodies fetched from the repo)
