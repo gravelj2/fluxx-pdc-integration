@@ -68,10 +68,6 @@ result =
       raise "#{User.find_current_user rescue 'This user'} cannot save custom Ruby in Fluxx, which the PDC " \
             "installer needs. Ask a Fluxx admin with Ruby access to run this. (Fluxx said: #{ruby_denied})"
     end
-    # One deploy model per instance (Before New checks too; this covers a
-    # bootstrap pasted or invoked by hand on a second model)
-    other = ModelMethod.where(name: 'PDC Bootstrap Deploy Model', deleted_at: nil).where.not(model_type: mt).pluck(:model_type).first
-    raise "PDC is already managed by the deploy model #{other}; use that one. Nothing was set up on #{mt}." if other
     spec = JSON.parse(fetch.call('deploy/installer/deploy-model.json'))
 
     # 1. Attributes
