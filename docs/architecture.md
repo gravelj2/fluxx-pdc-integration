@@ -89,20 +89,16 @@ fresh copy of the stencil per card; block 5 scopes lookups to the active card.
 These were deliberately **not** fixed during the repo migration (contents were
 kept byte-identical to what is deployed/tested):
 
-- `pdc-integration-map/Get Funder from PDC.rb` — typo `model.fundefunder_short_code`;
-  the method will raise when invoked.
 - `grant-request/PDC_Get_PDC_Field_Mapping.rb` — uses `.first` map record;
   selection logic TODO is documented in the file header.
-- `data-explorer/5. floating-panel.html` — proposals endpoint hardcoded to the
-  **sandbox** API while `3. oauth.html` points at **production** auth.
 - `pdc-integration-map/Get PDC Base URL.rb` — environment detection depends on
   `ClientConfiguration` record id 47 existing and on the dashboard title
-  containing `[` in non-production.
-- `pdc-consent/CurrentConsentLanguage.rb` — links to a preprod Fluxx URL
-  (`macfound-dev.preprod.fluxxlabs.com/...`).
-- `pdc-map` production credentials intentionally unconfigured:
-  `Get Auth Token from PDC.rb` raises for prod; both client-secret methods
-  return `"Not Configured"`.
+  containing `[` in non-production; without record 47 it uses the production API.
+- `pdc-consent/CurrentConsentLanguage.rb` — the Q&A link is a placeholder
+  (`yoursite.invalid`), and the contact address and "the Foundation" wording are
+  MacArthur's.
+- `Get PDC Client Secret.rb` returns `"Not Configured"` in the repo; each instance
+  enters its own value in Fluxx.
 
 ## Fluxx configuration reference
 
