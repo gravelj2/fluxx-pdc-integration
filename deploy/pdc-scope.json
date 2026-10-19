@@ -46,6 +46,11 @@
   "_element_required_config": "Settings every PDC stencil element needs. allow_script lets its JavaScript (and onload handlers) run; strip_html would remove its markup. Fluxx stores these as true/\"1\"/\"0\"; any on/off form is accepted.",
   "element_required_config": { "allow_script": true, "strip_html": false },
 
+  "_stencil_field_templates": "How Install adds a native field the PDC code reads, copied from TRN's stencil 45712 (2026-10-19). visible_form only: the field is on the form for the PDC component's account question to read and write, and not shown in the read-only view.",
+  "stencil_field_templates": {
+    "GrantRequest.pdc_account_exists": {"element_type": "attribute", "name": "pdc_account_exists", "config": {"label": "Do you already have an organizational account setup with the PDC?", "required": "0", "widget_type": "Dropdown", "boolean_true_label": "Yes", "boolean_false_label": "No", "boolean_default": "False"}, "visibility": {"visible_form": true, "advanced_filter": "1", "advanced_query": "{\"group_type\":\"and\",\"conditions\":[],\"relationship_filter_model_type\":\"GrantRequest\"}", "advanced_sort": "[]"}, "styling": {"alignment": "left"}, "label": "Do you already have an organizational account setup with the PDC?"}
+  },
+
   "_placement": "Where Install adds PDC elements that aren't on a form yet, in this order, inside a group with group_label at the bottom of the form: interactive to the form of each theme chosen in Grant Request Themes, readonly to each chosen in Grant Request Read-only Themes, dashboard to the first GenericTemplate on the PDC Grantee Profile's dashboard. Admins move them afterwards.",
   "placement": {
     "group_label": "Contribute to the Philanthropy Data Commons (PDC)",

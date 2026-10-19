@@ -188,7 +188,8 @@ result =
         out
       elsif el['field']
         raise "layout field #{el['field']} is not an attribute on #{mt}" unless attr_types.key?(el['field'])
-        config = { 'label' => el['label'], 'required' => el['required'] ? '1' : '0' }
+        # Fluxx stores Required as true (and not-required as "0")
+        config = { 'label' => el['label'], 'required' => el['required'] ? true : '0' }
         config['show_as_radio_buttons'] = '0' if attr_types[el['field']] == 'multi_value'
         config.merge!('allow_rich_text' => '0', 'trackable' => '0', 'trackable_workflow' => '0') if attr_types[el['field']] == 'text'
         vis = visibility.call

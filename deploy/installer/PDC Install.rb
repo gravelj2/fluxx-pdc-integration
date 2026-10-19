@@ -344,7 +344,8 @@ install = lambda do |log|
       kids = f['elements'].map { |id| lib[:new_element].call('text', f['model_type'], 'text' => specs.find { |s| s['id'] == id }['text']) }
       kids += f['fields'].map do |name|
         a = attrs_by_name[[f['model_type'], name]] || {}
-        lib[:new_element].call('field', f['model_type'], 'name' => name, 'label' => a['description'] || name)
+        lib[:new_element].call('field', f['model_type'], 'name' => name, 'label' => a['description'] || name,
+                               'template' => (scope['stencil_field_templates'] || {})["#{f['model_type']}.#{name}"])
       end
       doc['elements'] = Array(doc['elements']) + [lib[:new_element].call('group', f['model_type'], 'label' => group_label, 'elements' => kids)]
       raw = JSON.generate(doc, ascii_only: true)

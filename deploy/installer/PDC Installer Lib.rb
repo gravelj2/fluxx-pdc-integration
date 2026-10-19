@@ -349,8 +349,13 @@ lib[:new_element] = lambda do |kind, model_type, opts|
   when 'text'
     base.merge('element_type' => 'text', 'name' => 'text', 'config' => { 'text' => opts['text'], 'strip_html' => '0', 'allow_script' => true })
   when 'field'
-    base.merge('element_type' => 'attribute', 'name' => opts['name'], 'label' => opts['label'],
-               'config' => { 'label' => opts['label'], 'required' => '0' })
+    if opts['template'].is_a?(Hash)
+      # A copy of how the field sits on a known-good form, with a fresh uid
+      JSON.parse(JSON.generate(opts['template'])).merge('uid' => SecureRandom.uuid)
+    else
+      base.merge('element_type' => 'attribute', 'name' => opts['name'], 'label' => opts['label'],
+                 'config' => { 'label' => opts['label'], 'required' => '0' })
+    end
   when 'group'
     base.merge('element_type' => 'group', 'name' => 'group', 'label' => opts['label'],
                'config' => { 'label' => opts['label'], 'collapsible' => '0', 'default_open' => '0', 'disable_lazy_load' => '0',
