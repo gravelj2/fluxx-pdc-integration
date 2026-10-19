@@ -9,7 +9,9 @@
     { "name": "pdc_staff_profile",   "description": "PDC Staff Profile",   "attribute_type": "multi_value" },
     { "name": "validate_results",  "description": "Validate Results",  "attribute_type": "text" },
     { "name": "install_results",   "description": "Install Results",   "attribute_type": "text" },
-    { "name": "cleanup_results",   "description": "Cleanup Results",   "attribute_type": "text" },
+    { "name": "uninstall_results", "description": "Uninstall Results", "attribute_type": "text" },
+    { "name": "restore_results",   "description": "Restore Results",   "attribute_type": "text" },
+    { "name": "installer_results", "description": "Installer Results", "attribute_type": "text" },
     { "name": "previous_configuration", "description": "Previous Configuration", "attribute_type": "text" },
     { "name": "current_configuration",  "description": "Current Configuration",  "attribute_type": "text" }
   ],
@@ -18,6 +20,9 @@
     { "name": "PDC Bootstrap Deploy Model", "path": "deploy/installer/PDC Bootstrap Deploy Model.rb" },
     { "name": "PDC Installer Lib",          "path": "deploy/installer/PDC Installer Lib.rb" },
     { "name": "PDC Validate Install",       "path": "deploy/installer/PDC Validate Install.rb" },
+    { "name": "PDC Install",                "path": "deploy/installer/PDC Install.rb" },
+    { "name": "PDC Uninstall",              "path": "deploy/installer/PDC Uninstall.rb" },
+    { "name": "PDC Restore Previous",       "path": "deploy/installer/PDC Restore Previous.rb" },
     { "name": "PDC_Discover",               "path": "deploy/installer/PDC_Discover.rb" },
     { "name": "PDC_Export_Components",      "path": "deploy/installer/PDC_Export_Components.rb" },
     { "name": "PDC Populate Options",       "path": "deploy/installer/PDC Populate Options.rb" },
@@ -30,6 +35,9 @@
   "states": [
     { "name": "new",             "description": "New",               "state_type": "new" },
     { "name": "validate",        "description": "Validate",          "state_type": "workflow", "invokes": "PDC Validate Install" },
+    { "name": "install",         "description": "Install",           "state_type": "workflow", "invokes": "PDC Install" },
+    { "name": "uninstall",       "description": "Uninstall",         "state_type": "workflow", "invokes": "PDC Uninstall" },
+    { "name": "restore_previous","description": "Restore Previous",  "state_type": "workflow", "invokes": "PDC Restore Previous" },
     { "name": "refresh_lists",   "description": "Refresh Lists",     "state_type": "workflow", "invokes": "PDC Populate Options" },
     { "name": "update_installer","description": "Update Installer",  "state_type": "workflow", "invokes": "PDC Bootstrap Deploy Model" }
   ],
@@ -39,6 +47,9 @@
   "button_role": "Admin",
   "events": [
     { "button_name": "Validate",          "to_state": "validate",         "from_states": ["new"] },
+    { "button_name": "Install",           "to_state": "install",          "from_states": ["new"] },
+    { "button_name": "Uninstall",         "to_state": "uninstall",        "from_states": ["new"] },
+    { "button_name": "Restore Previous",  "to_state": "restore_previous", "from_states": ["new"] },
     { "button_name": "Refresh Lists",     "to_state": "refresh_lists",    "from_states": ["new"] },
     { "button_name": "Update Installer",  "to_state": "update_installer", "from_states": ["new"] }
   ]

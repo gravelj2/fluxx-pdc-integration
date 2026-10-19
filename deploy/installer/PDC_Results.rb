@@ -1,17 +1,12 @@
 # PDC_Results
 #
-# The latest validate / install / cleanup results saved on this deploy model,
-# for the Liquid results block (deploy/installer/stencil/Results.liquid):
-#
-#   {% assign pdc = model.PDC_Results %}{% for section in pdc.sections %}...
-#
-# Each section has title, mode, ran_at, summary [{label, count, tone}],
-# groups [{label, tone, items [{kind, key, detail}]}], and optionally
-# error, warnings and backup. Underscored name so Liquid can call it.
+# Called from the deploy model's form (Liquid: model.PDC_Results). Reads the
+# results fields, newest run first, and the headers of the two configuration
+# snapshots (never their contents).
 
 require 'json'
 
-sections = %w[validate_results install_results cleanup_results].map do |field|
+read = lambda do |field|
   raw = model.respond_to?(field) ? model.public_send(field).to_s : ''
   next nil if raw.strip.empty?
   begin
@@ -19,6 +14,14 @@ sections = %w[validate_results install_results cleanup_results].map do |field|
   rescue JSON::ParserError
     { 'title' => field, 'error' => 'These results could not be read.' }
   end
-end.compact
+end
 
-{ 'sections' => sections }
+sections = %w[install_results uninstall_results restore_results validate_results installer_results]
+           .map { |f| read.call(f) }.compact.sort_by { |s| s['ran_at'].to_s }.reverse
+snapshots = {}
+{ 'previous' => 'previous_configuration', 'current' => 'current_configuration' }.each do |k, f|
+  snap = read.call(f)
+  snapshots[k] = snap['meta'] if snap.is_a?(Hash) && snap['meta']
+end
+
+{ 'sections' => sections, 'snapshots' => snapshots }

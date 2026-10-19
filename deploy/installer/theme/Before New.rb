@@ -40,7 +40,7 @@ else
     model.dyn_invoke_for(:"PDC Bootstrap Deploy Model")
   else
     msg = "PDC bootstrap: could not fetch #{path} at #{repo_ref} (HTTP #{resp.code})"
-    model.current_configuration = msg if model.respond_to?(:current_configuration=)
+    model.installer_results = JSON.generate('title' => 'Installer update', 'mode' => 'failed', 'error' => msg) if model.respond_to?(:installer_results=)
     msg
   end
 end

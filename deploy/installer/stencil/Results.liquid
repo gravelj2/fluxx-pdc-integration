@@ -1,4 +1,4 @@
-<!-- PDC deploy model: results of the last Validate / Install / Cleanup run.
+<!-- PDC deploy model: results of the last Validate / Install / Uninstall / Restore run.
      PDC Bootstrap Deploy Model writes this into the deploy model's stencil
      (see layout.json); edit it here, not in Fluxx. Keep every tag on ONE line: Fluxx's save-time cleanup mangles
      tags that wrap across lines. Never open this element in the rich text editor. -->
@@ -17,10 +17,11 @@
 .pdc-results code { font-size: 12px; }
 .pdc-results .pdc-detail { color: #555; }
 .pdc-results .pdc-error { color: #9b2218; font-weight: bold; }
-.pdc-results textarea { width: 100%; font-family: monospace; font-size: 11px; }
+.pdc-results .pdc-snapshots { color: #444; margin: 0 0 10px; }
 </style>
 {% assign pdc = model.PDC_Results %}
 <div class="pdc-results">
+{% if pdc.snapshots.previous %}<p class="pdc-snapshots"><strong>Restore Previous</strong> goes back to the configuration saved {{ pdc.snapshots.previous.label }} ({{ pdc.snapshots.previous.taken_at }}: {{ pdc.snapshots.previous.components }} components, {{ pdc.snapshots.previous.stencils }} forms).</p>{% endif %}
 {% for section in pdc.sections %}
 <details class="pdc-run"{% if forloop.first %} open{% endif %}>
 <summary><strong>{{ section.title }}</strong><span class="pdc-meta">{{ section.mode }} &middot; {{ section.ran_at }}</span><br>{% for s in section.summary %}<span class="pdc-badge pdc-{{ s.tone }}">{{ s.label }}: {{ s.count }}</span>{% endfor %}</summary>
@@ -30,9 +31,8 @@
 <h4><span class="pdc-badge pdc-{{ g.tone }}">{{ g.label }}</span> {{ g.items.size }}</h4>
 <ul>{% for i in g.items %}<li><code>{{ i.key }}</code>{% if i.detail != blank %} <span class="pdc-detail">&mdash; {{ i.detail }}</span>{% endif %}</li>{% endfor %}</ul>
 {% endfor %}
-{% if section.backup %}<details><summary>Backup of replaced or removed values (copy and keep)</summary><textarea readonly rows="3">{{ section.backup }}</textarea></details>{% endif %}
 </details>
 {% else %}
-<p>No results yet. Click <strong>Validate</strong> to check this instance against the repo.</p>
+<p>No results yet. Click <strong>Validate</strong> to see what <strong>Install</strong> would change.</p>
 {% endfor %}
 </div>

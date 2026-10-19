@@ -7,11 +7,13 @@
 # (model.class), so the deploy model's name doesn't matter.
 #
 # Called by the pasted Before New on the first record, and later by the
-# "Update Installer" button. Safe to re-run: missing pieces are created,
-# changed method/state bodies and the stencil are replaced, and each is first
-# saved to previous_configuration (Fluxx hard-deletes, so there is no undo).
+# "Update Installer" button. Safe to re-run: missing pieces are created, and
+# changed method/state bodies and the form are replaced with the repo copy
+# (all of it lives in the repo, so nothing here needs a backup).
 #
-# Returns (and stores in current_configuration) a JSON log of what it did.
+# It never touches previous_configuration / current_configuration: those
+# hold snapshots of the PDC configuration itself, for Restore Previous.
+# Returns, and stores in installer_results, what it did.
 
 require 'json'
 require 'net/http'
@@ -22,7 +24,6 @@ require 'securerandom'
 
 mt = model.class.name
 log = []
-replaced = {}
 
 # Repo location: handed over by Before New on the first run, else the record's fields.
 handoff = model.instance_variable_get(:@pdc_bootstrap) || {}
@@ -47,11 +48,12 @@ same = lambda do |a, b|
   norm.call(a) == norm.call(b)
 end
 
-# Can this user save custom Ruby? Tested by doing it inside a transaction that
+# Can this user save custom Ruby? Tested by doing it inside a savepoint that
 # is always rolled back, so it works whatever Fluxx calls the permission.
+# (requires_new: inside a save, a plain nested transaction can't roll back.)
 ruby_denied =
   begin
-    ActiveRecord::Base.transaction do
+    ActiveRecord::Base.transaction(requires_new: true) do
       ModelMethod.create!(model_type: mt, method_type: 'method', name: 'PDC Permission Probe', unsafe_dyn_method: "'ok'")
       raise ActiveRecord::Rollback
     end
@@ -89,7 +91,6 @@ result =
       elsif same.call(mm.unsafe_dyn_method, body)
         log << "method #{m['name']}: up to date"
       else
-        replaced["method #{m['name']}"] = mm.unsafe_dyn_method
         mm.unsafe_dyn_method = body
         mm.save!
         log << "method #{m['name']}: updated"
@@ -107,7 +108,6 @@ result =
                                   unsafe_before_validation_enter: hook)
         log << "state #{s['name']}: created"
       elsif hook && !same.call(st.unsafe_before_validation_enter, hook)
-        replaced["state #{s['name']}"] = st.unsafe_before_validation_enter
         st.unsafe_before_validation_enter = hook
         st.save!
         log << "state #{s['name']}: hook updated"
@@ -198,7 +198,6 @@ result =
       if old_doc && without_uids.call(old_doc) == without_uids.call(new_doc)
         log << "stencil #{target.id}: up to date"
       else
-        replaced["stencil #{target.id}"] = target['json'].to_s
         target['json'] = JSON.generate(new_doc)
         target.save!
         log << "stencil #{target.id}: overwritten with the repo layout"
@@ -217,19 +216,25 @@ result =
     { 'ok' => false, 'error' => "#{e.class}: #{e.message}" }
   end
 
-unless replaced.empty?
-  prior = {}
-  begin
-    prior = JSON.parse(model.previous_configuration.to_s) if model.respond_to?(:previous_configuration) && model.previous_configuration.present?
-  rescue JSON::ParserError
-    prior = { 'unparsed' => model.previous_configuration }
-  end
-  backups = prior['bootstrap_backups'].is_a?(Array) ? prior['bootstrap_backups'] : []
-  backups << { 'at' => Time.now.utc.iso8601, 'replaced' => replaced }
-  model.previous_configuration = JSON.pretty_generate(prior.merge('bootstrap_backups' => backups.last(5))) if model.respond_to?(:previous_configuration=)
+# Results in the same shape as the other actions, for the form
+entries = log.map do |line|
+  key, status = line.to_s.split(/: (?=[^:]*\z)/, 2)
+  status = case status
+           when 'exists', 'up to date' then 'ok'
+           when 'created' then 'created'
+           when nil then (key = line.to_s; 'note')
+           else status =~ /updated|overwritten/ ? 'overwrote' : status
+           end
+  { 'status' => status, 'key' => key }
 end
-
-report = JSON.pretty_generate(result.merge('ran_at' => Time.now.utc.iso8601, 'model_type' => mt,
-                                           'repo_url' => repo_url, 'repo_ref' => repo_ref, 'log' => log))
-model.current_configuration = report if model.respond_to?(:current_configuration=)
-report
+record =
+  begin
+    model.dyn_invoke_for(:"PDC Installer Lib")[:results_record].call(
+      'Installer update', "from #{repo_ref}", entries, result['error'] ? { 'error' => result['error'] } : {})
+  rescue => e
+    { 'title' => 'Installer update', 'mode' => "from #{repo_ref}", 'ran_at' => Time.now.utc.iso8601,
+      'error' => [result['error'], "#{e.class}: #{e.message}"].compact.join(' / '),
+      'groups' => [{ 'label' => 'log', 'tone' => 'info', 'items' => log.map { |l| { 'key' => l.to_s } } }] }
+  end
+model.installer_results = JSON.generate(record) if model.respond_to?(:installer_results=)
+JSON.generate(record)

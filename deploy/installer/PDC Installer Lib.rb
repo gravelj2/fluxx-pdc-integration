@@ -5,7 +5,7 @@
 #
 #   lib = model.dyn_invoke_for(:"PDC Installer Lib")
 #
-# READ-ONLY: nothing in here writes to Fluxx.
+# Read-only except store_results (results fields) and fits (always rolled back).
 #
 # The normalize/hash rules below MUST stay identical to the ones in
 # deploy/tools/pdc_manifest.rb, or every body will report DIFFERS.
@@ -580,8 +580,8 @@ end
 results_tone = lambda do |status|
   st = status.to_s.downcase
   if st =~ /\A(match|ok)\z/ then 'good'
-  elsif st =~ /would|skipped|kept|\Aunmarked\z/ then 'info'
-  elsif st =~ /\A(restored|created|overwrote|wrote|removed)/ then 'done'
+  elsif st =~ /would|skipped|kept|\Aunmarked\z|\Anote\z|already gone|not shipped/ then 'info'
+  elsif st =~ /\A(restored|created|recreated|overwrote|wrote|removed|cleared)/ then 'done'
   else 'bad'
   end
 end
@@ -622,6 +622,230 @@ lib[:store_results] = lambda do |deploy_model, field, record, save|
   rescue => e
     "could not save to #{field}: #{e.class}: #{e.message}"
   end
+end
+
+# ---------------------------------------------------------------------------
+# Configuration snapshots (previous_configuration / current_configuration)
+# ---------------------------------------------------------------------------
+#
+# Install, Uninstall and Restore Previous each save a snapshot of every PDC
+# component before they change anything (previous_configuration) and after
+# (current_configuration). Restore Previous puts previous_configuration back.
+#
+# A snapshot is a list of records. Each one names a component by its natural
+# key ('find'), and holds its id, whether it was soft-deleted, and the
+# columns PDC writes ('cols'). id nil means the component didn't exist, so a
+# restore soft-deletes it if it exists by then. Secret methods keep only id
+# and deleted state, never their body.
+
+snapshot_cols = {
+  'ModelAttribute' => %w[description attribute_type multi_allowed value_model_type],
+  'ModelAttributeValue' => %w[description display_order retired],
+  'ModelMethod' => %w[method_type unsafe_dyn_method],
+  'ModelTheme' => %w[unsafe_before_new_block unsafe_after_create_block],
+  'MachineState' => %w[description state_type state_order allowed_roles unsafe_before_validation_enter unsafe_after_enter],
+  'MachineEvent' => %w[name is_validation_suppressed guard_strategy filter unsafe_guard],
+  'Stencil' => %w[json]
+}.freeze
+lib[:snapshot_cols] = snapshot_cols
+
+# Snapshot targets for everything the bundle describes, in the order a
+# restore applies them. Stencils are the ones holding PDC elements or PDC
+# fields right now, plus any extra ids (e.g. those in an earlier snapshot).
+lib[:snapshot_targets] = lambda do |bundle, extra_stencil_ids = []|
+  t = []
+  bundle['attributes'].each do |a|
+    t << { 'table' => 'ModelAttribute', 'key' => a['key'], 'find' => { 'model_type' => a['model_type'], 'name' => a['name'] } }
+    next unless a['options'].is_a?(Array)
+    a['options'].each do |o|
+      t << { 'table' => 'ModelAttributeValue', 'key' => "#{a['key']} = #{o['value']}",
+             'find' => { 'model_type' => a['model_type'], 'attribute' => a['name'], 'value' => o['value'] } }
+    end
+  end
+  bundle['methods'].each do |m|
+    t << { 'table' => 'ModelMethod', 'key' => m['key'], 'find' => { 'model_type' => m['model_type'], 'name' => m['name'] } }
+         .merge(m['secret'] ? { 'secret' => true } : {})
+  end
+  bundle['themes'].each do |th|
+    t << { 'table' => 'ModelTheme', 'key' => th['key'], 'cols_only' => true, 'find' => { 'model_type' => th['model_type'], 'name' => th['name'] } }
+  end
+  bundle['states'].each do |s|
+    t << { 'table' => 'MachineState', 'key' => s['key'], 'find' => { 'model_type' => s['model_type'], 'name' => s['name'] } }
+  end
+  bundle['events'].each do |e|
+    t << { 'table' => 'MachineEvent', 'key' => e['key'], 'find' => { 'model_type' => e['model_type'], 'theme' => e['theme'], 'button_name' => e['button_name'] } }
+  end
+  bundle['shared_slices'].each do |x|
+    t << { 'table' => 'MachineState', 'key' => x['key'], 'cols_only' => true, 'only_cols' => [x['field']],
+           'find' => { 'model_type' => x['model_type'], 'name' => x['state'] } }
+  end
+  scope = bundle['scope']
+  gr = scope['grant_request']
+  ids = lib[:locate_elements].call(scope, false).values.flatten.map { |l| l['stencil_id'] }
+  conn = Stencil.connection
+  gr['attributes'].each do |name|
+    Stencil.where(model_type: gr['model_type'], deleted_at: nil).where("json LIKE #{conn.quote('%' + name + '%')}").each do |st|
+      ids << st.id if lib[:stencil_elements].call(st['json']).any? { |e| e['element']['element_type'] == 'attribute' && e['element']['name'] == name }
+    end
+  end
+  (ids + extra_stencil_ids).uniq.sort.each do |id|
+    t << { 'table' => 'Stencil', 'key' => "stencil #{id}", 'find' => { 'id' => id } }
+  end
+  t
+end
+
+lib[:snapshot_class] = lambda do |table|
+  raise "not a snapshot table: #{table}" unless snapshot_cols.key?(table)
+  Object.const_get(table)
+end
+
+# Scope for a target's natural key. Events and dropdown options are found
+# through their workflow / field. nil when that parent doesn't exist.
+lib[:snapshot_scope] = lambda do |target|
+  f = target['find']
+  case target['table']
+  when 'Stencil' then Stencil.where(id: f['id'])
+  when 'ModelAttributeValue'
+    attr = ModelAttribute.where(model_type: f['model_type'], name: f['attribute'], deleted_at: nil).first
+    attr && ModelAttributeValue.where(model_attribute_id: attr.id, value: f['value'])
+  when 'MachineEvent'
+    theme = ModelTheme.where(model_type: f['model_type'], name: f['theme'], deleted_at: nil).first
+    wf = theme && MachineWorkflow.where(model_theme_id: theme.id, deleted_at: nil).first
+    wf && MachineEvent.where(machine_workflow_id: wf.id, button_name: f['button_name'])
+  else
+    lib[:snapshot_class].call(target['table']).where(f.slice('model_type', 'name'))
+  end
+end
+
+# The live record for a target, else its most recently soft-deleted one.
+lib[:snapshot_find] = lambda do |target, live_only = false|
+  rel = lib[:snapshot_scope].call(target)
+  next nil if rel.nil?
+  next rel.first if target['table'] == 'Stencil'
+  live = rel.where(deleted_at: nil).first
+  next live if live || live_only
+  rel.where.not(deleted_at: nil).order(deleted_at: :desc).first
+end
+
+# A button's target and from-states by state id and name (the name is the
+# fallback if that state row is ever hard-deleted), and its role ids.
+lib[:event_links] = lambda do |ev|
+  name = lambda { |id| MachineState.find_by(id: id)&.name }
+  { 'to_state' => name.call(ev.to_state_id), 'to_state_id' => ev.to_state_id,
+    'from' => MachineEventFromState.where(machine_event_id: ev.id).map { |f| [name.call(f.from_state_id), f.button_order, f.from_state_id] }.sort_by { |p| [p[0].to_s, p[2].to_i] },
+    'roles' => MachineEventRole.where(machine_event_id: ev.id).pluck(:role_id).sort }
+end
+
+lib[:take_snapshot] = lambda do |targets, label|
+  records = targets.map do |t|
+    rec = lib[:snapshot_find].call(t)
+    entry = t.merge('id' => rec&.id)
+    if rec
+      cols = t['secret'] ? [] : (t['only_cols'] || snapshot_cols[t['table']])
+      entry['cols'] = cols.each_with_object({}) { |c, h| h[c] = rec[c] }
+      if rec.has_attribute?(:deleted_at) && rec.deleted_at.present?
+        entry['deleted'] = true
+        entry['deleted_at'] = rec.deleted_at.utc.iso8601
+      end
+      entry['links'] = lib[:event_links].call(rec) if t['table'] == 'MachineEvent'
+    end
+    entry
+  end
+  { 'format' => 1, 'label' => label, 'taken_at' => Time.now.utc.iso8601, 'records' => records }
+end
+
+# A snapshot as stored in the field: a small readable header for the card,
+# plus the full snapshot compressed.
+lib[:snapshot_value] = lambda do |snap|
+  recs = snap['records']
+  meta = { 'label' => snap['label'], 'taken_at' => snap['taken_at'],
+           'components' => recs.count { |r| r['id'] && !r['deleted'] && r['table'] != 'Stencil' },
+           'stencils' => recs.count { |r| r['table'] == 'Stencil' && r['id'] } }
+  packed = lib[:pack_export].call(snap)
+  JSON.generate('meta' => meta.merge('kb' => (packed.bytesize / 1024.0).round(1)), 'data' => packed)
+end
+
+lib[:unpack_export] = lambda do |str|
+  raw = str.to_s[/PDCEXPORT1:([A-Za-z0-9+\/=]+)/, 1]
+  raise 'no snapshot data found' if raw.nil?
+  JSON.parse(Zlib::Inflate.inflate(Base64.decode64(raw)).force_encoding('UTF-8'))
+end
+
+lib[:read_snapshot] = lambda do |deploy_model, field|
+  next nil unless deploy_model.respond_to?(field)
+  raw = deploy_model.public_send(field).to_s
+  next nil if raw.strip.empty?
+  lib[:unpack_export].call(JSON.parse(raw)['data'])
+end
+
+# Saves value to field on a fresh copy of the record inside a savepoint that
+# is always rolled back, then reads it back: true if the field holds it
+# intact. Nothing is kept, so it is safe inside a button hook.
+lib[:fits] = lambda do |deploy_model, field, value|
+  ok = false
+  ActiveRecord::Base.transaction(requires_new: true) do
+    fresh = deploy_model.class.find(deploy_model.id)
+    fresh.public_send("#{field}=", value)
+    fresh.save!
+    ok = deploy_model.class.find(deploy_model.id).public_send(field).to_s == value
+    raise ActiveRecord::Rollback
+  end
+  ok
+end
+
+# Raises unless this user can save custom Ruby (tested inside a savepoint
+# that is always rolled back).
+lib[:require_ruby_access] = lambda do |deploy_model|
+  denied =
+    begin
+      ActiveRecord::Base.transaction(requires_new: true) do
+        ModelMethod.create!(model_type: deploy_model.class.name, method_type: 'method', name: 'PDC Permission Probe', unsafe_dyn_method: "'ok'")
+        raise ActiveRecord::Rollback
+      end
+      nil
+    rescue => e
+      "#{e.class}: #{e.message}"
+    end
+  raise "This user cannot save custom Ruby in Fluxx, which the PDC installer needs (#{denied})" if denied
+end
+
+# The frame every changing action runs in:
+#   1. stop unless this user can save custom Ruby
+#   2. snapshot everything in targets, and stop unless the snapshot fits in
+#      previous_configuration (nothing has changed yet)
+#   3. work.call(log) does the changes, adding { status => [keys] } to log;
+#      it may return extra fields for the results record
+#   4. snapshot again; store both snapshots and the results record
+# Inside a button hook the record is saved by Fluxx afterwards; a pasted
+# test script passes save_now = true.
+lib[:run_with_snapshots] = lambda do |deploy_model, title, results_field, targets, save_now, work|
+  log = Hash.new { |h, k| h[k] = [] }
+  extra = {}
+  before_value = nil
+  begin
+    %w[previous_configuration current_configuration].each do |f|
+      raise "This deploy model has no #{f} field; click Update Installer first" unless deploy_model.respond_to?("#{f}=")
+    end
+    lib[:require_ruby_access].call(deploy_model)
+    value = lib[:snapshot_value].call(lib[:take_snapshot].call(targets, "before #{title}"))
+    unless lib[:fits].call(deploy_model, 'previous_configuration', value)
+      raise "The configuration snapshot (#{(value.bytesize / 1024.0).round} KB) does not fit in previous_configuration, so nothing was changed"
+    end
+    before_value = value
+    extra = work.call(log) || {}
+  rescue => e
+    extra['error'] = "#{e.class}: #{e.message}#{before_value ? ' (some changes may have been made; Restore Previous undoes them)' : ''}"
+  end
+  if before_value
+    deploy_model.previous_configuration = before_value
+    deploy_model.current_configuration = lib[:snapshot_value].call(lib[:take_snapshot].call(targets, "after #{title}"))
+  end
+  mode = extra.delete('mode') || (extra['error'] ? 'failed' : 'done')
+  record = lib[:results_record].call(title, mode, lib[:log_entries].call(log), extra)
+  saved = lib[:store_results].call(deploy_model, results_field, record, false)
+  deploy_model.save! if save_now
+  "PDC #{title} (#{mode}; #{saved}): " + record['summary'].map { |s| "#{s['label']} #{s['count']}" }.join(', ') +
+    (extra['error'] ? " || #{extra['error']}" : '')
 end
 
 lib[:summarize] = lambda do |rows, meta|

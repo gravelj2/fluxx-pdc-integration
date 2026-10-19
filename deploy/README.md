@@ -1,12 +1,12 @@
 # PDC deploy model
 
-The PDC integration is installed, checked and (later) removed by Ruby methods on one
-dynamic model inside Fluxx: the **deploy model**. The code reads what "correct" means
+The PDC integration is installed, updated, checked and removed from one dynamic model
+inside Fluxx: the **deploy model**. Admins work entirely from its form: buttons run the
+actions, and each action's results show on the form. The code reads what "correct" means
 from this public repo, so nothing has to be copied by hand once the deploy model exists.
 
-The deploy model stays in place after install. It's the console for validating and
-repairing PDC. To remove PDC completely, an admin runs the uninstall method (coming
-next) and then deletes the deploy model in the GUI.
+The deploy model stays in place after install. To remove PDC completely, click
+**Uninstall**, delete what it lists for deleting by hand, then delete the deploy model.
 
 ## What's here
 
@@ -14,6 +14,7 @@ next) and then deletes the deploy model in the GUI.
 |---|---|
 | `pdc-scope.json` | Hand-maintained. *What* PDC consists of: owned models, GrantRequest pieces, secrets, exclusions, stencil-element fingerprints. |
 | `pdc-manifest.json` | Generated, never hand-edited. Every PDC component with its natural key, settings, repo path and sha256. Validation compares against this. |
+| `pdc-install-bundle.json` | Generated with the manifest. The same components with their bodies inlined, so Install and Uninstall need one fetch. |
 | `installer/` | The deploy model's methods. Only `theme/Before New.rb` is pasted by hand; the rest is installed from `deploy-model.json` by the bootstrap. |
 | `tools/pdc_manifest.rb` | Local Ruby (no gems) that builds and checks the manifest. |
 
@@ -25,18 +26,13 @@ next) and then deletes the deploy model in the GUI.
    `repo_url` / `repo_ref` at the top; pin a release tag or commit SHA in production.
 3. **Create the first record.** Before New downloads `PDC Bootstrap Deploy Model` and
    runs it. That builds the rest of the deploy model from `installer/deploy-model.json`:
-   its attributes, installer methods, states and the Validate / Refresh Lists /
-   Update Installer buttons. The log lands in `current_configuration`.
+   its fields, installer methods, states, buttons and form. What it did shows on the
+   form as **Installer update**.
    - Only one deploy record may exist. A second one deletes itself; Fluxx shows an error
      page.
    - The bootstrap uses `model.class`, so the model's name doesn't matter.
-4. Later, **Update Installer** re-runs the bootstrap against `repo_ref`. Any method or
-   state body it replaces is saved to `previous_configuration` first, because Fluxx
-   hard-deletes and there is no undo.
-
-The stencil isn't generated yet; lay out the fields by hand for now, and add a
-text element containing [installer/stencil/Results.liquid](installer/stencil/Results.liquid)
-to show results (see below).
+4. Later, **Update Installer** re-runs the bootstrap against `repo_ref`, replacing the
+   deploy model's own methods and form with the repo copy.
 
 ## Using it
 
@@ -45,7 +41,18 @@ to show results (see below).
    - `pdc_event_role`: the role that may click the PDC Integration Map's buttons (TRN: Admin)
    - `pdc_grantee_profile`: grantees, who view and update their own PDC Consent records (TRN: Grantee)
    - `pdc_staff_profile`: staff allowed to edit the PDC fields the Consent form restricts (TRN: Employee with Permissions Plus)
-3. Click **Validate**. The results are saved to `validate_results` and shown on the card:
+3. Click a button:
+
+   | Button | What it does |
+   |---|---|
+   | **Validate** | Read-only. Compares this instance with the repo at `repo_ref`, so it previews what Install would change. |
+   | **Install** | Installs and updates. Installs what's missing, restores what was soft-deleted (same id, so saved answers keep working), and overwrites anything PDC owns that differs from the repo. To move to another release, change `repo_ref` and click Install. Never removes anything: methods, states or buttons PDC didn't ship belong to whoever built them. |
+   | **Uninstall** | Removes what PDC owns (soft-deleted where Fluxx allows) and lists anything it isn't sure about, plus the PDC models themselves, for someone to review and delete by hand. |
+   | **Restore Previous** | Puts every PDC component back the way it was before the last Install, Uninstall or Restore. Clicking it twice undoes the restore. |
+   | **Refresh Lists** | Reloads the role and profile dropdowns. |
+   | **Update Installer** | Updates the deploy model itself from the repo. |
+
+   Validate statuses:
 
    | Status | Meaning |
    |---|---|
@@ -56,7 +63,7 @@ to show results (see below).
    | `SKIPPED_SECRET` | Secret method: checked it exists, body never compared |
    | `MARKER_NOT_FOUND` | GrantRequest `granted` hook has no `###PDC_CODE###` block |
    | `MISSING_ROLE` / `ROLE_DIFFERS` | Integration Map button has no role, or not the chosen one |
-   | `UNMARKED` | PDC stencil element recognized by fingerprint but lacking its `PDC:ELEMENT` marker (fixed by the upcoming "Adopt markers" step) |
+   | `UNMARKED` | PDC stencil element recognized by fingerprint but lacking its `PDC:ELEMENT` marker (Install adds it) |
    | `UNMARKED_DIFFERS` | Same as `UNMARKED`, but the element's content also differs from the repo copy |
    | `CONFIG_DIFFERS` | A PDC stencil element has Allow JavaScript off, or strips HTML; its scripts won't run |
    | `PROFILE_DIFFERS` | Consent permissions or a stencil restriction use a different profile than the one chosen |
@@ -66,53 +73,51 @@ to show results (see below).
 Validation is read-only. The report keeps counts for everything, and detail for anything
 that isn't `MATCH`.
 
-## Results on the card
+## Results and snapshots on the form
 
-Each action saves what it did, as JSON, to a text field on the deploy record
-(created automatically if missing):
+Each action saves what it did to a text field on the deploy record, newest shown first:
+`installer_results`, `validate_results`, `install_results`, `uninstall_results`,
+`restore_results`. `PDC_Results` reads them and the Liquid block in
+[installer/stencil/Results.liquid](installer/stencil/Results.liquid) renders when each
+ran, a count per status, and the items under every status except MATCH/ok.
 
-| Field | Written by |
-|---|---|
-| `validate_results` | Validate |
-| `install_results` | Install (adds and repairs only; never removes) |
-| `cleanup_results` | Cleanup (removes only the extras you name) |
+**Configuration snapshots.** Install, Uninstall and Restore Previous save a snapshot of
+the whole PDC configuration before they change anything (`previous_configuration`) and
+after (`current_configuration`). That covers fields and static options, methods, theme
+code, states, buttons (with from-states and roles), the `granted` hook, and every form
+holding PDC elements or fields. Secret methods are recorded only as existing or deleted,
+never their values. Before changing anything, an action also checks that the snapshot
+fits in the field, and stops with nothing changed if it doesn't. The form shows what
+Restore Previous would go back to.
 
-`PDC_Results` reads the three fields, and the Liquid block in
-[installer/stencil/Results.liquid](installer/stencil/Results.liquid) renders
-them: when each ran and in which mode, a count per status, the items under
-every status except MATCH/ok, and any backup of replaced or removed values in a
-copyable box. Keep that element's tags on single lines and never open it in the
-rich text editor.
+What Install and Uninstall can't do yet:
+- Install doesn't add or move PDC elements on forms. It reports a missing one, and
+  after an Uninstall, **Restore Previous** is how to put them back.
+- Install doesn't add a missing `###PDC_CODE###` block to the `granted` hook; it only
+  updates one that's there.
+- Neither creates or deletes models, profile permissions, or the models' own forms.
 
 ### The deploy model's form
 
-The bootstrap (first record, and **Update Installer**) overwrites the deploy
-model's form stencil with [installer/stencil/layout.json](installer/stencil/layout.json):
-the settings fields, the results block above, and a collapsed installer log.
-The old stencil JSON is saved to `previous_configuration` first, and an
-unchanged layout isn't rewritten. Nothing else edits this stencil; Validate,
-Install and Cleanup only write field values. Change the form by editing
-`layout.json` in the repo, not in Fluxx, or the next Update Installer replaces
-your edits. To try a layout before pushing, run the paste-in script built by
-`deploy/tools/build_one_off_layout.rb`.
+The bootstrap (first record, and **Update Installer**) overwrites the deploy model's
+form stencil with [installer/stencil/layout.json](installer/stencil/layout.json): the
+settings fields and the results block. It isn't backed up; the layout lives in the repo.
+Nothing else edits this stencil. Change the form by editing `layout.json` in the repo,
+not in Fluxx, or the next Update Installer replaces your edits.
 
-## Install and cleanup
+## Testing before a push
 
-Until install and cleanup are buttons on the deploy model, they run as paste-in
-scripts built by `deploy/tools/build_one_off_install.rb` and
-`deploy/tools/build_one_off_cleanup.rb` (both embed the manifest, so no repo
-access is needed). Both are dry runs until you change their first lines.
+The buttons fetch from the repo. To try a change in Fluxx before pushing, build a
+paste-in script that embeds what it needs, paste it into a temporary method on the
+deploy model, and run it on the deploy record:
 
-- **Install** restores soft-deleted and creates missing fields, dropdown
-  options, methods, states and buttons, and with `overwrite_differs` replaces
-  ones that differ. It never removes anything.
-- **Cleanup** lists extras: methods, states and buttons on the three PDC
-  models that the manifest doesn't list. It soft-deletes only the keys you copy
-  into `remove_keys`. It never touches stencils or stencil elements, fields,
-  options, themes, models, GrantRequest, or the deploy model.
-- **Stencil elements** are written by `deploy/tools/build_one_off_stencils.rb`,
-  which only replaces the text (and Allow JavaScript / strip HTML settings) of
-  elements that already exist.
+```bash
+ruby deploy/tools/build_one_off_action.rb install    # also: uninstall, restore
+```
+
+`build_one_off_validate.rb` does the same for Validate, and `build_one_off_layout.rb`
+for the bootstrap's fields and form steps. Each script runs the same code as its button
+and saves the record, so the results show on the form.
 
 ## Updating the manifest (maintainers)
 
@@ -126,10 +131,10 @@ ruby deploy/tools/pdc_manifest.rb unpack export.json
 # 3. Review git diff, commit, push. Then Validate in Fluxx should be all MATCH.
 ```
 
-After editing a body in the repo, run `ruby deploy/tools/pdc_manifest.rb rehash`.
-`ruby deploy/tools/pdc_manifest.rb check` fails on stale hashes, missing files, or a
-data-explorer file whose marker/fingerprints don't identify it uniquely; run it before
-committing.
+After editing a body in the repo, run `ruby deploy/tools/pdc_manifest.rb rehash`, which
+also rewrites `pdc-install-bundle.json`. `ruby deploy/tools/pdc_manifest.rb check` fails
+on stale hashes, missing files, an out-of-date bundle, or a data-explorer file whose
+marker/fingerprints don't identify it uniquely; run it before committing.
 
 Repo files remain authoritative for data-explorer stencil elements (they carry the
 markers), so `unpack` never overwrites `data-explorer/`. Secret method bodies are never

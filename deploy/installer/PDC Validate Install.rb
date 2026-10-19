@@ -1,7 +1,8 @@
 # PDC Validate Install
 #
-# Compares this instance against deploy/pdc-manifest.json at the deploy
-# model's repo_url / repo_ref and reports, per component:
+# The Validate button. Compares this instance against deploy/pdc-manifest.json
+# at the deploy model's repo_url / repo_ref, which previews what Install would
+# change. Reports, per component:
 #   MATCH             found, checksums and settings agree
 #   DIFFERS           found, but a checksum or setting differs (detail lists which)
 #   MISSING           nothing with that name/key exists
