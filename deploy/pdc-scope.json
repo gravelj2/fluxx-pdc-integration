@@ -53,7 +53,6 @@
     { "id": "stencil-container",          "path": "data-explorer/4. pdc-stencil-container.html", "host_model_types": ["GrantRequest"],    "include": ["pdc-auth-container", "pdc-launch-btn", "Review and Manage Consent"], "exclude": [] },
     { "id": "stencil-container-readonly", "path": "data-explorer/4r. pdc-stencil-readonly.html", "host_model_types": ["GrantRequest"],   "include": ["pdc-auth-container", "Review and Manage Consent"],               "exclude": ["pdc-launch-btn"] },
     { "id": "floating-panel",             "path": "data-explorer/5. floating-panel.html",        "host_model_types": ["GrantRequest"],    "include": ["_pdcInitBehavior"],                                              "exclude": [] },
-    { "id": "consent-qa",                 "path": "pdc-map/generic-templates/consent-qa.html",   "host_model_types": ["GenericTemplate"], "include": ["Philanthropy", "Q&A: Consent to Share"],                         "exclude": [] },
     { "id": "oauth-callback",             "path": "data-explorer/oauth-callback.html",           "host_model_types": ["GenericTemplate"], "include": ["pdc_oauth_result", "window.close"],                               "exclude": ["codeVerifier"] }
   ]
 }

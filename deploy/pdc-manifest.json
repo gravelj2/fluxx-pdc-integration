@@ -165,20 +165,6 @@
         ]
       },
       {
-        "id": "consent-qa",
-        "path": "pdc-map/generic-templates/consent-qa.html",
-        "host_model_types": [
-          "GenericTemplate"
-        ],
-        "include": [
-          "Philanthropy",
-          "Q&A: Consent to Share"
-        ],
-        "exclude": [
-
-        ]
-      },
-      {
         "id": "oauth-callback",
         "path": "data-explorer/oauth-callback.html",
         "host_model_types": [
@@ -1243,16 +1229,6 @@
       ],
       "sha256": "c879ec3cebc7ee5da4a21507da63084197610eb850548be9526fa862d2a74a42",
       "unmarked_sha256": "573e7d5da90b95094308b7550ac538b1aafb74153bea3ad04ccf2b26f601d87a"
-    },
-    {
-      "key": "consent-qa",
-      "id": "consent-qa",
-      "path": "pdc-map/generic-templates/consent-qa.html",
-      "host_model_types": [
-        "GenericTemplate"
-      ],
-      "sha256": "f5467b7b0859240c64eaa4fba5113c48619fcfa771795c791f57f86c455d4199",
-      "unmarked_sha256": "277c94884d48482c7c7553760578f787aff0a419a4a20ec2e6c021b85f03b740"
     },
     {
       "key": "oauth-callback",
