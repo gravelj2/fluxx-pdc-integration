@@ -29,7 +29,13 @@ rescue => e
 end
 # The after-snapshot of the last action: anything that differs from it now was
 # changed by someone since, and isn't overwritten.
-latest = (lib[:read_snapshot].call(model, 'current_configuration') rescue nil)
+latest_error = nil
+latest = begin
+  lib[:read_snapshot].call(model, 'current_configuration')
+rescue => e
+  latest_error = e.message
+  nil
+end
 latest_by_key = latest ? latest['records'].each_with_object({}) { |r, h| h[r['key']] = r } : {}
 targets = previous ? previous['records'].map { |r| r.slice('table', 'key', 'find', 'secret', 'cols_only', 'only_cols') } : []
 
@@ -43,10 +49,15 @@ restore = lambda do |log|
     next false if after.nil?
     live = lib[:snapshot_find].call(r)
     next !after['id'].nil? if live.nil?
-    next true if after['id'] && live.id != after['id']
+    if after['id'].nil?
+      # It didn't exist after the last action; a live one was created since
+      next !(live.has_attribute?(:deleted_at) && live.deleted_at.present?)
+    end
+    next true if live.id != after['id']
     live_deleted = live.has_attribute?(:deleted_at) && live.deleted_at.present?
-    next true if after['id'] && live_deleted != (after['deleted'] ? true : false)
-    (after['cols'] || {}).any? { |c, v| live[c] != v }
+    next true if live_deleted != (after['deleted'] ? true : false)
+    next true if (after['cols'] || {}).any? { |c, v| live[c] != v }
+    r['table'] == 'MachineEvent' && after['links'] && lib[:event_links].call(live) != after['links']
   end
   # Records in dependency order, so fields exist before their options and
   # states before the buttons that point at them. Removals of things that
@@ -122,7 +133,11 @@ restore = lambda do |log|
         next
       end
       attrs = scope.where_values_hash.merge(cols)
-      attrs['to_state_id'] = r['links']['to_state_id'] if r['table'] == 'MachineEvent' && r['links']
+      if r['table'] == 'MachineEvent' && r['links']
+        l = r['links']
+        attrs['to_state_id'] = MachineState.where(id: l['to_state_id']).exists? ? l['to_state_id'] :
+                                 MachineState.where(model_type: r['find']['model_type'], name: l['to_state'], deleted_at: nil).first&.id
+      end
       rec = klass.new(attrs)
       rec.save!
       changed = ['recreated']
@@ -177,7 +192,10 @@ restore = lambda do |log|
     fixed.empty? ? (log['ok'] << key if changed.empty?) : log['restored'] << "#{key} [#{fixed.join(', ')}]"
   end
 
-  { 'mode' => "back to #{previous['label']} (#{previous['taken_at']})" }
+  warnings = []
+  warnings << "The last action's after-snapshot couldn't be read (#{latest_error}), so changes made since then weren't checked" if latest.nil? && model.respond_to?(:current_configuration) && model.current_configuration.present?
+  warnings << "There's no after-snapshot of the last action, so changes made since then weren't checked" if latest.nil? && !(model.respond_to?(:current_configuration) && model.current_configuration.present?)
+  { 'mode' => "back to #{previous['label']} (#{previous['taken_at']})", 'warnings' => warnings }
 end
 
 lib[:run_with_snapshots].call(model, 'Restore Previous', 'restore_results', targets, save_now, restore)

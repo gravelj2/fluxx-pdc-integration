@@ -258,7 +258,8 @@ install = lambda do |log|
 
   # PDC stencil elements already on forms: replace text and settings in place
   specs = b['stencil_elements']
-  located = lib[:locate_elements].call(scope, false)
+  # Only the elements Install handles this run (none while a PDC model is missing)
+  located = lib[:locate_elements].call(scope, false).select { |id, _| specs.any? { |s| s['id'] == id } }
   # The same string as it appears inside stored JSON: plain, or with < > &
   # escaped the way Rails' to_json writes them.
   encodings = lambda do |str|

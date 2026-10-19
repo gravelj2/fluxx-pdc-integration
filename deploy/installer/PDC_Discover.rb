@@ -14,7 +14,7 @@ begin
   scope = lib[:fetch_repo_json].call(model, 'deploy/pdc-scope.json')
   JSON.pretty_generate(
     'generated_at' => Time.now.utc.iso8601,
-    'repo_url' => model.repo_url,
+    'repo_url' => lib[:repo_settings].call(model)['repo_url'],
     'ref' => lib[:repo_ref].call(model),
     'deploy_model' => model.class.name,
     'live' => lib[:collect].call(scope, false)

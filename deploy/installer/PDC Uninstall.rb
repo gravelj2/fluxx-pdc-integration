@@ -75,7 +75,8 @@ uninstall = lambda do |log|
     node_at = lambda { |trail| trail.inject(doc) { |n, i| n['elements'][i] } }
     label = lambda { |node| (node['config'].is_a?(Hash) && node['config']['label']) || node['label'] || 'group' }
     # Marked PDC elements being removed (fingerprint matches have no marker to count)
-    removed_ids = trails.select { |t, v| lib[:element_text].call(node_at.call(t)).to_s.include?("PDC:ELEMENT id=#{v}") }.values
+    marker_of = lambda { |id| /<!--\s*PDC:ELEMENT\s+id=#{Regexp.escape(id.to_s)}\s*-->/ }
+    removed_ids = trails.select { |t, v| lib[:element_text].call(node_at.call(t)).to_s =~ marker_of.call(v) }.values
     # Collapse upward: a parent group whose children are all removable is
     # removed instead (groups only; other containers stay).
     loop do
@@ -94,7 +95,9 @@ uninstall = lambda do |log|
     trails.delete_if { |t, _| (1...t.size).any? { |n| trails.key?(t[0, n]) } }
     # Groups that keep other content stay, and are listed.
     trails.keys.select { |t| t.size > 1 }.map { |t| t[0..-2] }.uniq.each do |p|
-      log['review: group kept, it holds other content'] << "'#{label.call(node_at.call(p))}' @ stencil #{stencil_id} (#{st.name.to_s.strip})"
+      kept = node_at.call(p)
+      what = kept['element_type'] == 'group' ? 'group kept, it holds other content' : "#{kept['element_type']} container kept (only groups are removed)"
+      log["review: #{what}"] << "'#{label.call(kept)}' @ stencil #{stencil_id} (#{st.name.to_s.strip})"
     end
     # Remove deepest/last first so earlier trails stay valid.
     trails.keys.sort.reverse.each do |t|
@@ -103,7 +106,7 @@ uninstall = lambda do |log|
     end
     new_raw = JSON.generate(doc, ascii_only: true)
     count = lambda do |raw, id|
-      lib[:stencil_elements].call(raw).count { |e| lib[:element_text].call(e['element']).to_s.include?("PDC:ELEMENT id=#{id}") }
+      lib[:stencil_elements].call(raw).count { |e| lib[:element_text].call(e['element']).to_s =~ marker_of.call(id) }
     end
     leftover = removed_ids.uniq.select { |id| count.call(new_raw, id) != count.call(st['json'].to_s, id) - removed_ids.count(id) }
     raise "stencil #{stencil_id}: PDC element #{leftover.join(', ')} not removed as expected; nothing saved" if leftover.any?

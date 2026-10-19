@@ -27,8 +27,12 @@ log = []
 
 # Repo location: handed over by Before New on the first run, else the record's fields.
 handoff = model.instance_variable_get(:@pdc_bootstrap) || {}
-repo_url = handoff['repo_url'] || (model.respond_to?(:repo_url) ? model.repo_url : nil)
-repo_ref = handoff['repo_ref'] || (model.respond_to?(:repo_ref) ? model.repo_ref : nil)
+# The PDC Repo Settings method covers a record whose fields didn't stick.
+saved_repo = (model.dyn_invoke_for(:"PDC Repo Settings") rescue nil)
+saved_repo = {} unless saved_repo.is_a?(Hash)
+field = lambda { |f| model.respond_to?(f) ? model.public_send(f).to_s.strip.presence : nil }
+repo_url = handoff['repo_url'] || field.call(:repo_url) || saved_repo['repo_url']
+repo_ref = handoff['repo_ref'] || field.call(:repo_ref) || saved_repo['repo_ref']
 repo_ref = 'main' if repo_ref.blank?
 
 fetch = lambda do |path|
@@ -295,7 +299,7 @@ result =
 
 # Results in the same shape as the other actions, for the form
 entries = log.map do |line|
-  key, status = line.to_s.split(/: (?=[^:]*\z)/, 2)
+  key, status = line.to_s.split(': ', 2)
   status = case status
            when 'exists', 'up to date' then 'ok'
            when 'created' then 'created'

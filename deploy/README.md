@@ -38,8 +38,9 @@ The deploy model stays in place after install. To remove PDC completely, click
 
 ## Using it
 
-1. Open the deploy record that setup created. `repo_url`/`repo_ref` and the dropdowns
-   are already filled in; Refresh Lists reloads the dropdowns later.
+1. Open the deploy record that setup created. `repo_url`/`repo_ref` should be filled in
+   (if they're blank, enter them; the installer also remembers them in a `PDC Repo
+   Settings` method) and the dropdowns loaded; Refresh Lists reloads the dropdowns later.
 2. Pick the three instance-specific choices. Names differ per org, so nothing is guessed:
    - `pdc_event_role`: the role that may click the PDC Integration Map's buttons (TRN: Admin)
    - `pdc_grantee_profile`: grantees, who view and update their own PDC Consent records (TRN: Grantee)
@@ -105,8 +106,9 @@ What Install and Uninstall can't do yet:
   change something does, so restore before running anything else.
 - While any PDC model is missing, Install touches only the PDC models that exist:
   GrantRequest's PDC hooks call into all three, so they wait.
-- Restore Previous leaves alone anything someone changed after the last action, and
-  lists it for review.
+- Restore Previous leaves alone anything someone changed, created or re-linked after
+  the last action, and lists it for review. Forms are compared whole: any edit to a form
+  since then, PDC-related or not, means that form isn't restored.
 - Install doesn't add a missing `###PDC_CODE###` block to the `granted` hook; it only
   updates one that's there.
 - Neither creates or deletes models, profile permissions, or the models' own forms.

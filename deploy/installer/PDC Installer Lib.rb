@@ -740,7 +740,10 @@ lib[:snapshot_scope] = lambda do |target|
   case target['table']
   when 'Stencil' then Stencil.where(id: f['id'])
   when 'ModelAttributeValue'
-    attr = ModelAttribute.where(model_type: f['model_type'], name: f['attribute'], deleted_at: nil).first
+    # The live field, else its latest soft-deleted one: options stay findable
+    # while their field is removed (e.g. after Uninstall)
+    fields = ModelAttribute.where(model_type: f['model_type'], name: f['attribute'])
+    attr = fields.where(deleted_at: nil).first || fields.where.not(deleted_at: nil).order(deleted_at: :desc).first
     attr && ModelAttributeValue.where(model_attribute_id: attr.id, value: f['value'])
   when 'MachineEvent'
     theme = ModelTheme.where(model_type: f['model_type'], name: f['theme'], deleted_at: nil).first
@@ -884,8 +887,10 @@ lib[:run_with_snapshots] = lambda do |deploy_model, title, results_field, target
   end
   # Nothing changed: drop the two snapshot documents and keep the pointers, so
   # Restore Previous still goes back past the last real change.
+  # (An error may have struck after a write and before its log line, so a
+  # failed run always keeps its snapshots.)
   changed = log.any? { |status, keys| keys.any? && results_tone.call(status) == 'done' }
-  if before_value && !changed
+  if before_value && !changed && !extra['error']
     ModelDocument.where(id: JSON.parse(before_value)['document_id']).destroy_all rescue nil
     before_value = nil
     extra['mode'] = [extra['mode'], 'nothing changed'].compact.join('; ') unless extra['error']
