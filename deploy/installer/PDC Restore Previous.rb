@@ -74,14 +74,31 @@ restore = lambda do |log|
     end
 
     if r['table'] == 'Stencil'
-      st = Stencil.find_by(id: r['find']['id'])
-      if st.nil? || r['id'].nil?
+      st = lib[:snapshot_find].call(r)
+      if r['id'].nil?
+        # A form that didn't exist before (a PDC copy): remove it
+        if st && st.deleted_at.nil?
+          st.deleted_at = now
+          st.save!
+          log['removed (was not there before)'] << key
+        else
+          log['ok'] << key
+        end
+      elsif st.nil?
         log['review: form not found'] << key
-      elsif st['json'].to_s == cols['json'].to_s
-        log['ok'] << key
       else
-        lib[:write_stencil].call(st, cols['json'])
-        log['restored form'] << key
+        changed = []
+        changed << 'json' if st['json'].to_s != cols['json'].to_s
+        changed << 'enabled' if cols.key?('enabled') && st.enabled != cols['enabled']
+        changed << 'un-deleted' if st.deleted_at.present? && !r['deleted']
+        if changed.empty?
+          log['ok'] << key
+        else
+          st.enabled = cols['enabled'] if cols.key?('enabled')
+          st.deleted_at = nil if st.deleted_at.present? && !r['deleted']
+          changed.include?('json') ? lib[:write_stencil].call(st, cols['json']) : st.save!
+          log['restored form'] << "#{key} [#{changed.join(', ')}]"
+        end
       end
       next
     end

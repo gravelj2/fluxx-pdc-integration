@@ -104,11 +104,22 @@ intact, the action stops with nothing changed. The snapshot documents belong to 
 download the last snapshot first if you may need it.
 
 Where Install adds what's missing:
-- **PDC elements** go in a PDC group at the bottom of the form of each theme chosen in
-  **Grant Request Themes** (the interactive set, plus the `pdc_account_exists` field it reads) and
-  **Grant Request Read-only Themes** (the read-only set). The OAuth callback goes at the bottom of
-  the first GenericTemplate on the **PDC Grantee Profile**'s dashboard. Move them where
-  they belong afterwards; Install finds them by their markers wherever they are.
+- **PDC elements** go in a PDC group at the bottom of the grant forms of each theme
+  chosen in **Grant Request Themes** (the interactive set, plus the `pdc_account_exists`
+  field it reads) and **Grant Request Read-only Themes** (the read-only set). The OAuth
+  callback goes at the bottom of the first GenericTemplate on the **PDC Grantee
+  Profile**'s dashboard. Move them where they belong afterwards; Install finds them by
+  their markers wherever they are.
+- **Every active form of a chosen theme** gets the PDC component. Fluxx allows several
+  enabled forms per theme (for example one per user profile), so a theme with an
+  internal and an external form gets it on both; remove it from any form grantees don't
+  use. Disabled forms and filters are never touched.
+- **Grant forms are copied first.** The first time a grant form gets the PDC component,
+  Install copies it as "*name* (PDC)", adds the component to the copy, switches the copy
+  on and the original off. The original is kept unchanged: switching it back on (and the
+  copy off) is the rollback inside Fluxx. Later installs update the copy in place.
+  Restore Previous removes the copy and switches the original back on; Uninstall removes
+  the PDC elements from the copy and lists it, so you can switch back to the original.
 - **The `###PDC_CODE###` block** goes at the top of GrantRequest's `granted` hook, so it
   always runs.
 - While any PDC model is missing, Install touches only the PDC models that exist:

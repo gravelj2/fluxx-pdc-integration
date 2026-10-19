@@ -112,6 +112,9 @@ uninstall = lambda do |log|
     raise "stencil #{stencil_id}: PDC element #{leftover.join(', ')} not removed as expected; nothing saved" if leftover.any?
     lib[:write_stencil].call(st, new_raw)
     trails.values.sort.each { |what| log['removed from form'] << "#{what} @ stencil #{stencil_id} (#{st.name.to_s.strip})" }
+    if st.name.to_s.end_with?(' (PDC)')
+      log['review: PDC copy of a form'] << "stencil #{stencil_id} (#{st.name.to_s.strip}): to go back to the original, switch it on in the theme and delete this copy"
+    end
   end
 
   # 2. The PDC block in GrantRequest's shared hooks

@@ -28,7 +28,10 @@
 #             form; elements a chosen form lacks (Grant Request Themes, Grant
 #             Request Read-only Themes, and the PDC Grantee Profile's dashboard page) are added
 #             in a PDC group at the bottom, with the native fields they need,
-#             for the admin to move
+#             for the admin to move. A grant form with no PDC elements yet is
+#             copied as "<name> (PDC)" first: the copy gets them and is
+#             switched on, the original is switched off and kept as the
+#             rollback. Every active form of a chosen theme is handled.
 #
 # Validate shows what Install will change. Before changing anything, the
 # whole PDC configuration is saved to previous_configuration; Restore
@@ -344,8 +347,29 @@ install = lambda do |log|
         lib[:new_element].call('field', f['model_type'], 'name' => name, 'label' => a['description'] || name)
       end
       doc['elements'] = Array(doc['elements']) + [lib[:new_element].call('group', f['model_type'], 'label' => group_label, 'elements' => kids)]
-      lib[:write_stencil].call(st, JSON.generate(doc, ascii_only: true))
-      (f['elements'] + f['fields'].map { |n| "field #{n}" }).each { |what| log['added to form (bottom; move it where it belongs)'] << "#{what} @ #{f['where']}" }
+      raw = JSON.generate(doc, ascii_only: true)
+      where = f['where']
+      if f['copy']
+        # The original stays as it is, switched off, as the rollback
+        # Bring back a copy removed earlier (e.g. by Restore Previous) before making a new one
+        copy = Stencil.where(model_type: st.model_type, model_theme_id: st.model_theme_id, name: f['copy']['name'])
+                      .where.not(deleted_at: nil).order(deleted_at: :desc).first
+        if copy
+          copy.deleted_at = nil
+        else
+          copy = st.dup
+        end
+        copy['name'] = f['copy']['name']
+        copy.enabled = true
+        lib[:write_stencil].call(copy, raw)
+        st.enabled = false
+        st.save!
+        log['copied form (PDC added to the copy; original kept, switched off)'] << "stencil #{st.id} -> #{copy.id} #{copy.name}"
+        where = "stencil #{copy.id} (#{copy.name})"
+      else
+        lib[:write_stencil].call(st, raw)
+      end
+      (f['elements'] + f['fields'].map { |n| "field #{n}" }).each { |what| log['added to form (bottom; move it where it belongs)'] << "#{what} @ #{where}" }
     end
   end
 
@@ -354,5 +378,9 @@ end
 
 # Worked out before anything changes, so the forms it adds to are in the snapshot
 plan = lib[:placement_plan].call(model, bundle['scope'])
-targets = lib[:snapshot_targets].call(bundle, plan['forms'].map { |f| f['stencil_id'] })
+copies = plan['forms'].select { |f| f['copy'] }.map do |f|
+  { 'table' => 'Stencil', 'key' => "PDC copy of stencil #{f['stencil_id']}",
+    'find' => { 'model_type' => f['model_type'], 'model_theme_id' => f['copy']['model_theme_id'], 'name' => f['copy']['name'] } }
+end
+targets = lib[:snapshot_targets].call(bundle, plan['forms'].map { |f| f['stencil_id'] }, copies)
 lib[:run_with_snapshots].call(model, 'Install', 'install_results', targets, save_now, install)

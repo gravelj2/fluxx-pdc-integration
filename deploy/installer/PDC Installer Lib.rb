@@ -266,13 +266,17 @@ lib[:locate_elements] = lambda do |scope, include_text = false|
   found
 end
 
-# The form stencil a theme shows: the enabled one (Fluxx marks every stencil
-# compiled, so that says nothing), newest first
-lib[:theme_form] = lambda do |theme|
+# Every active form a theme shows: enabled stencils whose form types include
+# "form" (filters are excluded; Fluxx marks every stencil compiled, so that
+# says nothing). A theme can have several, e.g. per user profile.
+lib[:theme_forms] = lambda do |theme|
   Stencil.where(model_type: theme.model_type, model_theme_id: theme.id, deleted_at: nil).to_a
-         .select { |st| lib[:form_types].call(st).include?('form') }
-         .max_by { |st| [st.enabled ? 1 : 0, st.updated_at.to_i] }
+         .select { |st| st.enabled && lib[:form_types].call(st).include?('form') }
+         .sort_by(&:id)
 end
+
+# Name of the PDC copy Install makes of a grant form
+lib[:pdc_copy_name] = lambda { |name| "#{name.to_s.strip} (PDC)" }
 
 # The first GenericTemplate stencil on a profile's dashboard: UserProfile ->
 # first dashboard template -> its cards -> the first /generic_templates/{id}.
@@ -294,25 +298,34 @@ lib[:placement_plan] = lambda do |deploy_model, scope|
   on_form = lambda { |stencil_id| located.select { |_, locs| locs.any? { |l| l['stencil_id'] == stencil_id } }.keys }
   plan = []
   notes = []
-  add = lambda do |stencil, set, why|
-    missing = set - on_form.call(stencil.id)
+  # copy: a grant form with no PDC elements yet is copied first, and the copy
+  # gets them, so the original stays as a rollback
+  add = lambda do |stencil, set, why, copy = false|
+    present = on_form.call(stencil.id)
+    missing = set - present
     fields = Array(scope['required_stencil_fields']).select do |req|
       req['model_type'] == stencil.model_type && set.include?(req['with_element']) &&
         lib[:stencil_elements].call(stencil['json']).none? { |e| e['element']['element_type'] == 'attribute' && e['element']['name'] == req['attribute'] }
     end.map { |req| req['attribute'] }
-    plan << { 'stencil_id' => stencil.id, 'model_type' => stencil.model_type, 'where' => "stencil #{stencil.id} (#{stencil.name.to_s.strip}, #{why})",
+    entry = { 'stencil_id' => stencil.id, 'model_type' => stencil.model_type, 'where' => "stencil #{stencil.id} (#{stencil.name.to_s.strip}, #{why})",
               'elements' => missing, 'fields' => fields }
+    if copy && present.empty? && missing.any?
+      entry['copy'] = { 'name' => lib[:pdc_copy_name].call(stencil.name), 'model_theme_id' => stencil.model_theme_id }
+    end
+    plan << entry
   end
   interactive = lib[:selected_themes].call(deploy_model, :grant_request_themes)
   readonly = lib[:selected_themes].call(deploy_model, :grant_request_readonly_themes)
   notes << 'no Grant Request Themes chosen, so no grant form gets the PDC component' if interactive.empty? && readonly.empty?
   interactive.each do |th|
-    st = lib[:theme_form].call(th)
-    st ? add.call(st, rules['interactive'] || [], "theme #{th.name}") : notes << "theme #{th.name} has no form"
+    forms = lib[:theme_forms].call(th)
+    notes << "theme #{th.name} has no active form" if forms.empty?
+    forms.each { |st| add.call(st, rules['interactive'] || [], "theme #{th.name}", true) }
   end
   (readonly - interactive).each do |th|
-    st = lib[:theme_form].call(th)
-    st ? add.call(st, rules['readonly'] || [], "read-only theme #{th.name}") : notes << "theme #{th.name} has no form"
+    forms = lib[:theme_forms].call(th)
+    notes << "theme #{th.name} has no active form" if forms.empty?
+    forms.each { |st| add.call(st, rules['readonly'] || [], "read-only theme #{th.name}", true) }
   end
   (readonly & interactive).each { |th| notes << "theme #{th.name} is in both theme lists; it gets the interactive set" }
   profile = lib[:selected_profile].call(deploy_model, :pdc_grantee_profile)
@@ -781,14 +794,14 @@ snapshot_cols = {
   'ModelTheme' => %w[unsafe_before_new_block unsafe_after_create_block],
   'MachineState' => %w[description state_type state_order allowed_roles unsafe_before_validation_enter unsafe_after_enter],
   'MachineEvent' => %w[name is_validation_suppressed guard_strategy filter unsafe_guard],
-  'Stencil' => %w[json]
+  'Stencil' => %w[json enabled]
 }.freeze
 lib[:snapshot_cols] = snapshot_cols
 
 # Snapshot targets for everything the bundle describes, in the order a
 # restore applies them. Stencils are the ones holding PDC elements or PDC
 # fields right now, plus any extra ids (e.g. those in an earlier snapshot).
-lib[:snapshot_targets] = lambda do |bundle, extra_stencil_ids = []|
+lib[:snapshot_targets] = lambda do |bundle, extra_stencil_ids = [], extra_targets = []|
   t = []
   bundle['attributes'].each do |a|
     t << { 'table' => 'ModelAttribute', 'key' => a['key'], 'find' => { 'model_type' => a['model_type'], 'name' => a['name'] } }
@@ -827,7 +840,7 @@ lib[:snapshot_targets] = lambda do |bundle, extra_stencil_ids = []|
   (ids + extra_stencil_ids).uniq.sort.each do |id|
     t << { 'table' => 'Stencil', 'key' => "stencil #{id}", 'find' => { 'id' => id } }
   end
-  t
+  t + extra_targets
 end
 
 lib[:snapshot_class] = lambda do |table|
@@ -840,7 +853,9 @@ end
 lib[:snapshot_scope] = lambda do |target|
   f = target['find']
   case target['table']
-  when 'Stencil' then Stencil.where(id: f['id'])
+  when 'Stencil'
+    # By id, or (for a PDC copy that may not exist yet) by theme and name
+    f['id'] ? Stencil.where(id: f['id']) : Stencil.where(model_type: f['model_type'], model_theme_id: f['model_theme_id'], name: f['name'])
   when 'ModelAttributeValue'
     # The live field, else its latest soft-deleted one: options stay findable
     # while their field is removed (e.g. after Uninstall)
@@ -860,7 +875,7 @@ end
 lib[:snapshot_find] = lambda do |target, live_only = false|
   rel = lib[:snapshot_scope].call(target)
   next nil if rel.nil?
-  next rel.first if target['table'] == 'Stencil'
+  next rel.first if target['table'] == 'Stencil' && target['find']['id']
   live = rel.where(deleted_at: nil).first
   next live if live || live_only
   rel.where.not(deleted_at: nil).order(deleted_at: :desc).first
