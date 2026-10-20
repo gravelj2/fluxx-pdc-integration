@@ -395,7 +395,7 @@ install = lambda do |log|
     rec, how = revive.call(rel, machine_workflow_id: wf.id, button_name: e['button_name'])
     ActiveRecord::Base.transaction(requires_new: true) do
       want.each { |c, v| rec[c] = v }
-      rec.save!
+      lib[:save_event].call(rec, pick_roles.call(wf), want_from)
       set_links.call(rec)
     end
     log[how] << e['key']

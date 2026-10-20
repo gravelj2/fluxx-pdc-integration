@@ -962,6 +962,20 @@ end
 
 # A button's target and from-states by state id and name (the name is the
 # fallback if that state row is ever hard-deleted), and its role ids.
+# Saves a button with the given roles and from-states. Fluxx won't save a
+# button that has no role, so missing links are attached before the save.
+lib[:save_event] = lambda do |ev, role_ids, from_pairs|
+  have_roles = ev.new_record? ? [] : MachineEventRole.where(machine_event_id: ev.id).pluck(:role_id)
+  # Fluxx validates the button's roles list, so assign roles (the link rows are
+  # created on save)
+  ev.roles = Role.where(id: role_ids).to_a if have_roles.empty? && role_ids.any?
+  if ev.new_record?
+    from_pairs.each { |sid, order| ev.machine_event_from_states.build(from_state_id: sid, button_order: order) }
+  end
+  ev.save!
+  ev
+end
+
 lib[:event_links] = lambda do |ev|
   name = lambda { |id| MachineState.find_by(id: id)&.name }
   { 'to_state' => name.call(ev.to_state_id), 'to_state_id' => ev.to_state_id,
