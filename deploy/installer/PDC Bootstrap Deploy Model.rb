@@ -1,7 +1,8 @@
 # PDC Bootstrap Deploy Model
 #
 # Builds (or refreshes) the deploy model itself from deploy/installer/
-# deploy-model.json in the repo: its attributes, snapshot document type,
+# deploy-model.json in the repo: its theme, workflow and blank form if Fluxx
+# didn't make them, then its attributes, snapshot document type,
 # installer methods, states, workflow buttons, and its form (stencil/layout.json overwrites the stencil
 # Fluxx created). Runs on whatever model type it's attached to
 # (model.class), so the deploy model's name doesn't matter.
@@ -75,6 +76,44 @@ result =
     end
     raise "repo_ref #{repo_ref.inspect} isn't a branch, tag or commit name" unless repo_ref.to_s =~ %r{\A[\w.\-/]+\z} && !repo_ref.to_s.include?('..')
     spec = JSON.parse(fetch.call('deploy/installer/deploy-model.json'))
+
+    # 0. The deploy model's theme, workflow and form. Fluxx normally creates
+    # them with the model; anything missing is brought back if soft-deleted,
+    # else created, so nothing is assumed to exist but the model itself.
+    model_name = (MachineModelType.where(model_type: mt).order(:id).first&.name).presence || mt
+    pick = lambda { |rel| rel.where(deleted_at: nil).order(:id).first || rel.where.not(deleted_at: nil).order(deleted_at: :desc).first }
+    theme0 = pick.call(ModelTheme.where(model_type: mt))
+    if theme0.nil?
+      theme0 = ModelTheme.create!(model_type: mt, name: model_name, label: "#{model_name} Default Theme")
+      log << "theme #{theme0.name}: created"
+    elsif theme0.deleted_at.present?
+      theme0.deleted_at = nil
+      theme0.save!
+      log << "theme #{theme0.name}: restored"
+    end
+    wf0 = pick.call(MachineWorkflow.where(model_theme_id: theme0.id))
+    if wf0.nil?
+      MachineWorkflow.create!(model_type: mt, model_theme_id: theme0.id, name: model_name, workflow_order: 1)
+      log << "workflow #{model_name}: created"
+    elsif wf0.deleted_at.present?
+      wf0.deleted_at = nil
+      wf0.save!
+      log << "workflow #{wf0.name}: restored"
+    end
+    form_types0 = lambda { |st| st.form_type.is_a?(Array) ? st.form_type.map(&:to_s) : st.form_type.to_s.split(/[,\s]+/) }
+    unless Stencil.where(model_type: mt, deleted_at: nil).to_a.any? { |st| form_types0.call(st).include?('form') }
+      st0 = Stencil.where(model_type: mt, model_theme_id: theme0.id).where.not(deleted_at: nil).order(deleted_at: :desc).first
+      if st0
+        st0.deleted_at = nil
+        st0.save!
+        log << "stencil #{st0.id}: restored"
+      else
+        st0 = Stencil.new(model_type: mt, model_theme_id: theme0.id, name: 'default', enabled: true, json: '{"elements":[]}')
+        st0.form_type = %w[form list show]
+        st0.save!
+        log << "stencil #{st0.id}: created"
+      end
+    end
 
     # 1. Attributes
     spec['attributes'].each do |a|
@@ -236,7 +275,7 @@ result =
     # 5. Workflow buttons on the workflow Fluxx created with the model's theme
     theme = ModelTheme.where(model_type: mt, deleted_at: nil).order(:id).first
     workflow = theme && MachineWorkflow.where(model_theme_id: theme.id, deleted_at: nil).first
-    raise "No workflow for #{mt}'s theme; Fluxx normally creates one with the model" if workflow.nil?
+    raise "No workflow for #{mt}'s theme" if workflow.nil?
     # The role chosen in the required Installer Role field. When the first New
     # form opens nothing is chosen yet, so the buttons are created by After
     # Create once the record is saved. Without a choice, the role the existing
@@ -320,7 +359,7 @@ entries = log.map do |line|
   key, status = line.to_s.split(': ', 2)
   status = case status
            when 'exists', 'up to date' then 'ok'
-           when 'created' then 'created'
+           when 'created', 'restored' then status
            when nil then (key = line.to_s; 'note')
            when /\Anot (found|created)/ then status
            when /updated|overwritten|role set|starts in/ then 'overwrote'
