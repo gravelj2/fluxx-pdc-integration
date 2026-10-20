@@ -112,7 +112,7 @@
         "label": "Do you already have an organizational account setup with the PDC?"
       }
     },
-    "_placement": "Where Install adds PDC elements that aren't on a form yet, in this order, inside a group with group_label at the bottom of the form: interactive to the form of each theme chosen in Grant Request Themes, readonly to each chosen in Grant Request Read-only Themes, dashboard to the first GenericTemplate on the PDC Grantee Profile's dashboard. Admins move them afterwards.",
+    "_placement": "Where Install adds PDC elements that aren't on a form yet, in this order, inside a group with group_label at the bottom of the form: interactive (the edit and the read-only component) to the forms of each theme chosen in Grant Request Themes, dashboard to the first GenericTemplate on the PDC Grantee Profile's dashboard. Admins move them afterwards.",
     "placement": {
       "group_label": "Contribute to the Philanthropy Data Commons (PDC)",
       "interactive": [
@@ -120,11 +120,8 @@
         "fluxx-card-api",
         "oauth-client",
         "stencil-container",
+        "stencil-container-readonly",
         "floating-panel"
-      ],
-      "readonly": [
-        "portal-style",
-        "stencil-container-readonly"
       ],
       "dashboard": [
         "oauth-callback"

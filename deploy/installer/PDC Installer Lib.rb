@@ -369,19 +369,12 @@ lib[:placement_plan] = lambda do |deploy_model, scope|
     plan << entry
   end
   interactive = lib[:selected_themes].call(deploy_model, :grant_request_themes)
-  readonly = lib[:selected_themes].call(deploy_model, :grant_request_readonly_themes)
-  notes << 'no Grant Request Themes chosen, so no grant form gets the PDC component' if interactive.empty? && readonly.empty?
+  notes << 'no Grant Request Themes chosen, so no grant form gets the PDC component' if interactive.empty?
   interactive.each do |th|
     forms = lib[:theme_forms].call(th)
     notes << "theme #{th.name} has no active form" if forms.empty?
     forms.each { |st| add.call(st, rules['interactive'] || [], "theme #{th.name}", true) }
   end
-  (readonly - interactive).each do |th|
-    forms = lib[:theme_forms].call(th)
-    notes << "theme #{th.name} has no active form" if forms.empty?
-    forms.each { |st| add.call(st, rules['readonly'] || [], "read-only theme #{th.name}", true) }
-  end
-  (readonly & interactive).each { |th| notes << "theme #{th.name} is in both theme lists; it gets the interactive set" }
   # The OAuth callback goes on the first dashboard page of every chosen grantee
   # profile (once per page, if several profiles share a dashboard)
   profiles = lib[:selected_profiles].call(deploy_model, :pdc_grantee_profile)

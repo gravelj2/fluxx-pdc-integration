@@ -136,6 +136,14 @@ result =
       end
     end
 
+    Array(spec['retired_attributes']).each do |name|
+      gone = ModelAttribute.where(model_type: mt, name: name, deleted_at: nil).first
+      next if gone.nil?
+      gone.deleted_at = Time.now
+      gone.save!
+      log << "attribute #{name}: removed (no longer used)"
+    end
+
     # Document type for configuration snapshots (Install, Uninstall and
     # Restore Previous save each snapshot as a text document of this type)
     # The installer writes these documents itself; nobody uploads one, so the
@@ -252,7 +260,8 @@ result =
         raise "layout field #{el['field']} is not an attribute on #{mt}" unless attr_types.key?(el['field'])
         # Fluxx stores Required as true (and not-required as "0")
         config = { 'label' => el['label'], 'required' => el['required'] ? true : '0' }
-        config['show_as_radio_buttons'] = '0' if attr_types[el['field']] == 'multi_value'
+        config['show_as_radio_buttons'] = '0' if attr_types[el['field']] == 'multi_value' && el['config'].nil?
+        config.merge!(el['config']) if el['config'].is_a?(Hash)
         config.merge!('allow_rich_text' => '0', 'trackable' => '0', 'trackable_workflow' => '0') if attr_types[el['field']] == 'text'
         vis = visibility.call
         vis['lock_field'] = true if el['lock']
@@ -390,6 +399,7 @@ entries = log.map do |line|
            when nil then (key = line.to_s; 'note')
            when /\Anot (found|created)/ then status
            when /updated|overwritten|roles? set|starts in/ then 'overwrote'
+           when /\Aremoved/ then 'removed'
            else 'note'
            end
   { 'status' => status, 'key' => key }

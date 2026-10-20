@@ -57,8 +57,8 @@ The deploy model stays in place after install. To remove PDC completely, click
      gets the OAuth callback (TRN: Grantee)
    - **PDC Staff Profile**: staff profiles allowed to see and edit the parts of the
      Consent form that are restricted (TRN: Employee with Permissions Plus)
-   - **Grant Request Themes** / **Grant Request Read-only Themes**: which grant themes
-     show grantees the PDC component, interactive or read-only
+   - **Grant Request Themes**: which grant themes show grantees the PDC component; each
+     chosen theme's forms get both the edit and the read-only component
 3. Click a button:
 
    | Button | What it does |
@@ -103,10 +103,9 @@ that isn't `MATCH`.
 - **Their fields, options, methods, theme code, states and buttons**, and the
   GrantRequest pieces (fields and `PDC` methods).
 - **PDC elements** go in a PDC group at the bottom of the grant forms of each theme
-  chosen in **Grant Request Themes** (the interactive set, plus the `pdc_account_exists`
-  field it reads) and **Grant Request Read-only Themes** (the read-only set). The OAuth
-  callback goes at the bottom of the first GenericTemplate on the **PDC Grantee
-  Profile**'s dashboard. Move them where they belong afterwards; Install finds them by
+  chosen in **Grant Request Themes**: the edit component, the read-only component, and
+  the `pdc_account_exists` field they read. The OAuth callback goes at the bottom of the
+  first GenericTemplate on each **PDC Grantee Profile**'s dashboard. Move them where they belong afterwards; Install finds them by
   their markers wherever they are.
 - **Every active form of a chosen theme** gets the PDC component. Fluxx allows several
   enabled forms per theme (for example one per user profile), so a theme with an
