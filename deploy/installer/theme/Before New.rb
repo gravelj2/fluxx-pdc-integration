@@ -33,9 +33,21 @@ if others.exists?
 else
   path = "deploy/installer/PDC Bootstrap Deploy Model.rb"
   # A raise here is silently ignored and the record saves anyway, so a failure
-  # is written to the installer_results field (created if needed). If even
-  # that isn't possible, the record is deleted rather than left looking set up.
+  # is written where it can always be seen: a "PDC Installer Log" method on
+  # this model (creating methods always works here), and the installer_results
+  # field (created if needed). The record Fluxx made for this New form isn't
+  # saved by Fluxx except for the fields on the form, so it's saved here. If
+  # the field can't be written, the record is deleted rather than left looking
+  # set up.
   fail_with = lambda do |msg|
+    begin
+      body = "# #{Time.now.utc} #{msg.to_s.gsub("\n", ' ')}\nnil"
+      log_method = ModelMethod.where(model_type: model.class.name, name: 'PDC Installer Log', deleted_at: nil).first
+      log_method ? log_method.update_columns(unsafe_dyn_method: body) :
+                   ModelMethod.create!(model_type: model.class.name, method_type: 'method', name: 'PDC Installer Log', unsafe_dyn_method: body)
+    rescue => e
+      nil
+    end
     unless model.respond_to?(:installer_results=)
       begin
         unless ModelAttribute.where(model_type: model.class.name, name: 'installer_results', deleted_at: nil).exists?
@@ -48,6 +60,11 @@ else
     end
     if model.respond_to?(:installer_results=)
       model.installer_results = JSON.generate('title' => 'Installer update', 'mode' => 'failed', 'error' => msg)
+      begin
+        model.save! if model.persisted?
+      rescue => e
+        nil
+      end
     else
       model.delete
     end
