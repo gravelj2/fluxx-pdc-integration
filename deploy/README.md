@@ -53,8 +53,9 @@ The deploy model stays in place after install. To remove PDC completely, click
    - **PDC Event Role**: roles that may click the PDC Integration Map's buttons; Install
      keeps those buttons' roles exactly in line with this list (TRN: Admin)
    - **PDC Grantee Profile**: grantee profiles that view and update their own PDC Consent
-     records; each gets the Consent permissions, and the first dashboard page of each
-     gets the OAuth callback (TRN: Grantee)
+     records. Each gets the Consent permissions, the first dashboard page of each gets
+     the OAuth callback, and the PDC group, its elements and the `pdc_account_exists`
+     field on grant forms are shown to exactly these profiles (TRN: Grantee)
    - **PDC Staff Profile**: staff profiles allowed to see and edit the parts of the
      Consent form that are restricted (TRN: Employee with Permissions Plus)
    - **Grant Request Themes**: which grant themes show grantees the PDC component; each
@@ -84,7 +85,8 @@ The deploy model stays in place after install. To remove PDC completely, click
    | `UNMARKED` | PDC stencil element recognized by fingerprint but lacking its `PDC:ELEMENT` marker (Install adds it) |
    | `UNMARKED_DIFFERS` | Same as `UNMARKED`, but the element's content also differs from the repo copy |
    | `CONFIG_DIFFERS` | A PDC stencil element has Allow JavaScript off, or strips HTML; its scripts won't run |
-   | `PROFILE_DIFFERS` | Consent permissions or a stencil restriction use a different profile than the one chosen |
+   | `PROFILE_DIFFERS` | A profile restriction doesn't match the deploy record's choices: Consent permissions or the PDC elements, group and field on grant forms and the dashboard page (PDC Grantee Profiles), or the restricted parts of the PDC models' forms (PDC Staff Profiles). Install fixes it. |
+   | `ROLE_DIFFERS` (installer buttons) | One of the deploy model's own buttons doesn't have exactly the Installer Roles; Update Installer fixes it |
    | `AMBIGUOUS` | An element's fingerprints match more than one PDC element; needs a person to look |
    | `DUPLICATE` | The same PDC element appears more than once in one stencil |
 

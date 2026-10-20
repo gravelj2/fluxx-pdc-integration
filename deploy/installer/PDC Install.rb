@@ -461,13 +461,18 @@ install = lambda do |log|
   group_label = (scope['placement'] || {})['group_label'] || 'PDC'
   attrs_by_name = bundle['attributes'].each_with_object({}) { |a, h| h[[a['model_type'], a['name']]] = a }
   gr_type = scope['grant_request']['model_type']
+  # Who sees the PDC pieces: the PDC Grantee Profiles chosen on this record
+  grantee_ids = grantees.map { |pr| pr.id.to_s }.sort
   (by_stencil.keys | plan_by_stencil.keys).each do |stencil_id|
     st = Stencil.find(stencil_id)
+    next if st.model_type == gr_type && !st.enabled   # switched-off grant forms are rollbacks
     doc = JSON.parse(st['json'].to_s)
     done = []   # [status, what] for this form
+    skipped = []
     by_stencil[stencil_id].group_by { |l| l['id'] }.each do |id, here|
       if here.size > 1 || here.any? { |l| Array(l['also_matches']).any? }
         log['duplicate or ambiguous (fix by hand)'] << "#{id} @ stencil #{stencil_id} (#{st.name.to_s.strip})"
+        skipped << id
         next
       end
       spec = specs.find { |s| s['id'] == id }
@@ -475,6 +480,7 @@ install = lambda do |log|
       text = lib[:element_text].call(node)
       if here.first['via'] == 'fingerprint' && ![lib[:sha].call(text), lib[:sha].call(CGI.unescapeHTML(text))].include?(spec['unmarked_sha256'])
         log['unmarked and edited (left alone; review, then replace by hand)'] << "#{id} @ stencil #{stencil_id} (#{st.name.to_s.strip})"
+        skipped << id
         next
       end
       text_ok = lib[:sha].call(text) == lib[:sha].call(spec['text'])
@@ -488,15 +494,36 @@ install = lambda do |log|
       required_config.each { |k, want| cfg[k] = want ? true : '0' unless lib[:truthy].call(cfg[k]) == want }
       done << ['wrote element', "#{id} [#{[text_ok ? nil : 'text', *bad].compact.join(', ')}]"]
     end
+    # The PDC Grantee Profiles on every PDC element, its group, and the native
+    # fields the PDC code reads (elements get them too, since admins move them
+    # out of the group)
+    if grantee_ids.any?
+      set_profiles = lambda do |node, what|
+        next unless node.is_a?(Hash)
+        next if lib[:profiles_of].call(node) == grantee_ids
+        node['visibility'] = (node['visibility'].is_a?(Hash) ? node['visibility'] : {}).merge('user_profile' => grantee_ids)
+        done << ['set profiles to the PDC Grantee Profiles', what]
+      end
+      node_at = lambda { |trail| trail.inject(doc) { |n, i| n.is_a?(Hash) ? Array(n['elements'])[i] : nil } }
+      by_stencil[stencil_id].reject { |l| skipped.include?(l['id']) }.each do |l|
+        set_profiles.call(node_at.call(l['trail']), l['id'])
+        set_profiles.call(node_at.call(l['group_trail']), 'PDC group') if l['group_trail']
+      end
+      field_names = Array(scope['required_stencil_fields']).select { |r| r['model_type'] == st.model_type }.map { |r| r['attribute'] }
+      lib[:stencil_elements].call(JSON.generate(doc)).each do |e|
+        next unless e['element']['element_type'] == 'attribute' && field_names.include?(e['element']['name'])
+        set_profiles.call(node_at.call(e['trail']), "field #{e['element']['name']}")
+      end
+    end
     f = plan_by_stencil[stencil_id]
     if f && (f['elements'].any? || f['fields'].any?)
-      kids = f['elements'].map { |id| lib[:new_element].call('text', f['model_type'], 'text' => specs.find { |s| s['id'] == id }['text']) }
+      kids = f['elements'].map { |id| lib[:new_element].call('text', f['model_type'], 'text' => specs.find { |s| s['id'] == id }['text'], 'profiles' => grantee_ids) }
       kids += f['fields'].map do |name|
         a = attrs_by_name[[f['model_type'], name]] || {}
-        lib[:new_element].call('field', f['model_type'], 'name' => name, 'label' => a['description'] || name,
+        lib[:new_element].call('field', f['model_type'], 'name' => name, 'label' => a['description'] || name, 'profiles' => grantee_ids,
                                'template' => (scope['stencil_field_templates'] || {})["#{f['model_type']}.#{name}"])
       end
-      doc['elements'] = Array(doc['elements']) + [lib[:new_element].call('group', f['model_type'], 'label' => group_label, 'elements' => kids)]
+      doc['elements'] = Array(doc['elements']) + [lib[:new_element].call('group', f['model_type'], 'label' => group_label, 'elements' => kids, 'profiles' => grantee_ids)]
       (f['elements'] + f['fields'].map { |n| "field #{n}" }).each { |what| done << ['added to form (bottom; move it where it belongs)', what] }
     end
     next if done.empty?
