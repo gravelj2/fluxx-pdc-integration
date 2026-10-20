@@ -62,11 +62,10 @@ between the two components.
   method/hook name; methods call each other by name via
   `model.dyn_invoke_for(:"Method Name")`. Renaming a file here without renaming
   the method in Fluxx (and every call site) breaks the integration.
-- **Secrets never live in this repo.** `Get PDC Client Secret.rb` is a placeholder
-  returning `"Not Configured"`; `Get PDC Client ID.rb` holds MacArthur's client ID,
-  which identifies the client but isn't secret. Each instance enters its own values in
-  Fluxx. The installer never writes either method, and snapshots record only whether
-  they exist.
+- **Credentials never live in this repo.** `Get PDC Client ID.rb` and
+  `Get PDC Client Secret.rb` are placeholders returning `"Not Configured"`. Each
+  instance enters its own values in Fluxx. The installer never writes, backs up or
+  removes either method; snapshots record only whether they exist.
 - `docs/architecture.md` has the method dependency map; `docs/deployment.md`
   has deployment order and known environment-specific values.
 
