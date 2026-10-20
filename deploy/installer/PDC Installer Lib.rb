@@ -907,6 +907,10 @@ lib[:snapshot_targets] = lambda do |bundle, extra_stencil_ids = [], extra_target
   (ids + extra_stencil_ids).uniq.sort.each do |id|
     t << { 'table' => 'Stencil', 'key' => "stencil #{id}", 'find' => { 'id' => id } }
   end
+  # Every live form of the PDC models, by id (Install removes leftover copies)
+  Stencil.where(model_type: bundle['scope']['owned_model_types'].keys, deleted_at: nil).pluck(:id).each do |id|
+    t << { 'table' => 'Stencil', 'key' => "stencil #{id}", 'find' => { 'id' => id } } unless t.any? { |x| x['find'] == { 'id' => id } }
+  end
   # The PDC models' own forms (by model and name: their ids aren't known
   # before the models exist)
   Array(bundle['stencils']).each do |st|

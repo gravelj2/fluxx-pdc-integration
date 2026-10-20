@@ -252,7 +252,11 @@ install = lambda do |log|
       next
     end
     raw = JSON.generate(doc, ascii_only: true)
-    st = live_or_gone.call(Stencil.where(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name']))
+    # The most recently updated one, if there are several (bringing a model
+    # back makes Fluxx un-delete every form it ever had)
+    named = Stencil.where(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name'])
+    st = named.where(deleted_at: nil).order(updated_at: :desc, id: :desc).first ||
+         named.where.not(deleted_at: nil).order(deleted_at: :desc).first
     if st.nil?
       st = Stencil.new(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name'], enabled: true)
       st.form_type = %w[form list show]
@@ -265,6 +269,14 @@ install = lambda do |log|
       log[how] << "form #{sp['key']}"
     else
       log['ok'] << "form #{sp['key']}"
+    end
+    # Each PDC model keeps one form: any other form of the model is a leftover
+    # copy (filters stay)
+    Stencil.where(model_type: sp['model_type'], deleted_at: nil).where.not(id: st.id).each do |extra|
+      next unless lib[:form_types].call(extra).include?('form')
+      extra.deleted_at = Time.now
+      extra.save!
+      log['removed'] << "extra form #{sp['model_type']} #{extra.name.to_s.strip} (stencil #{extra.id})"
     end
   end
   # Consent permissions for each PDC Grantee Profile. Profiles not chosen keep
