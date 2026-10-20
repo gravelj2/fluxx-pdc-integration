@@ -177,7 +177,9 @@ result =
     end
     # The first record must start in the state the buttons appear on
     start = states['new']
-    if start && model.new_record? && model.respond_to?(:state=) && model.state.to_s != start.name
+    # (Fluxx has already created a temporary record when Before New runs, with
+    # no state; a record without a state starts in "new".)
+    if start && model.respond_to?(:state=) && model.state.blank?
       model.state = start.name
       log << "record: starts in state #{start.name}"
     end
@@ -283,7 +285,7 @@ result =
     chosen = (model.dyn_invoke_for(:"PDC Installer Lib")[:selected_role].call(model, spec['button_role_field'].to_sym) rescue nil)
     role = chosen || Role.where(id: MachineEventRole.where(machine_event_id: MachineEvent.where(machine_workflow_id: workflow.id, deleted_at: nil).select(:id)).select(:role_id)).first
     if role.nil?
-      log << (model.new_record? ? "buttons: waiting (they're created when this record is saved with an Installer Role)" :
+      log << (handoff['phase'] == 'before_new' ? "buttons: waiting (they're created when this record is saved with an Installer Role)" :
                                   "buttons: not created (choose an Installer Role, save, then click Update Installer or create the buttons' role in the workflow editor)")
     end
     filter = JSON.generate([

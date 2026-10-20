@@ -7,7 +7,9 @@
 # delete, which doesn't run this.) To remove PDC entirely, run Uninstall and
 # then delete the deploy model itself.
 
-unless model.class.unscoped.where(deleted_at: nil).where.not(id: model.id).exists?
+others = model.class.unscoped.where(deleted_at: nil).where.not(id: model.id)
+others = others.where(is_temp_precreate: [false, nil]) if model.class.column_names.include?('is_temp_precreate')
+unless others.exists?
   model.class.unscoped.where(id: model.id).update_all(deleted_at: nil)
   model.deleted_at = nil if model.respond_to?(:deleted_at=)
 end

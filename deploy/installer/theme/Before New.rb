@@ -7,7 +7,8 @@
 # Create block. The admin picks the required Installer Role and saves; After
 # Create then creates the buttons with that role.
 # Only one deploy record may exist: a second one deletes itself (Fluxx shows
-# an error page; raising an error here does NOT stop the save).
+# an error page; raising an error here does NOT stop the save). Fluxx has
+# already created a temporary record by the time this runs.
 #
 # repo_url / repo_ref: where the installer reads from. Whatever is at that ref
 # becomes Ruby that runs in this Fluxx instance (see Advanced configuration in
@@ -21,7 +22,13 @@ require 'cgi'
 repo_url = "https://github.com/macfound/fluxx-pdc-integration"
 repo_ref = "main"
 
-if model.class.where(deleted_at: nil).where.not(id: model.id).exists?
+# Fluxx creates a temporary record when New is clicked (and keeps it as the
+# real one on save), so this record already exists here, and cancelled New
+# forms leave temporary records behind: only real records count.
+others = model.class.where(deleted_at: nil).where.not(id: model.id)
+others = others.where(is_temp_precreate: [false, nil]) if model.class.column_names.include?('is_temp_precreate')
+
+if others.exists?
   model.delete
 else
   path = "deploy/installer/PDC Bootstrap Deploy Model.rb"
@@ -62,7 +69,7 @@ else
       else
         ModelMethod.create!(model_type: model.class.name, method_type: 'method', name: 'PDC Bootstrap Deploy Model', unsafe_dyn_method: body)
       end
-      model.instance_variable_set(:@pdc_bootstrap, { 'repo_url' => repo_url, 'repo_ref' => repo_ref })
+      model.instance_variable_set(:@pdc_bootstrap, { 'repo_url' => repo_url, 'repo_ref' => repo_ref, 'phase' => 'before_new' })
       out = model.dyn_invoke_for(:"PDC Bootstrap Deploy Model")
       res = (JSON.parse(out.to_s) rescue nil)
       # The bootstrap writes its own results (with the error, if any) to
