@@ -346,7 +346,7 @@ end
 
 # What Install adds to which forms: one entry per form, with the PDC element
 # ids (and native fields) it lacks, plus notes for choices that are missing.
-lib[:placement_plan] = lambda do |deploy_model, scope|
+lib[:placement_plan] = lambda do |deploy_model, scope, allow_copies = true|
   rules = scope['placement'] || {}
   located = lib[:locate_elements].call(scope, false)
   on_form = lambda { |stencil_id| located.select { |_, locs| locs.any? { |l| l['stencil_id'] == stencil_id } }.keys }
@@ -365,7 +365,7 @@ lib[:placement_plan] = lambda do |deploy_model, scope|
               'elements' => missing, 'fields' => fields }
     # A form that is already a PDC copy (e.g. after an Uninstall) is updated in
     # place, never copied again
-    if copy && present.empty? && missing.any? && !stencil.name.to_s.strip.end_with?('(PDC)')
+    if allow_copies && copy && present.empty? && missing.any? && !stencil.name.to_s.strip.end_with?('(PDC)')
       entry['copy'] = { 'name' => lib[:pdc_copy_name].call(stencil.name), 'model_theme_id' => stencil.model_theme_id }
     end
     plan << entry
@@ -913,11 +913,6 @@ lib[:snapshot_targets] = lambda do |bundle, extra_stencil_ids = [], extra_target
   Stencil.where(model_type: bundle['scope']['owned_model_types'].keys, deleted_at: nil).pluck(:id).each do |id|
     t << { 'table' => 'Stencil', 'key' => "stencil #{id}", 'find' => { 'id' => id } } unless t.any? { |x| x['find'] == { 'id' => id } }
   end
-  # The PDC models' own forms (by model and name: their ids aren't known
-  # before the models exist)
-  Array(bundle['stencils']).each do |st|
-    t << { 'table' => 'Stencil', 'key' => "form #{st['key']}", 'find' => { 'model_type' => st['model_type'], 'name' => st['name'] } }
-  end
   t + extra_targets
 end
 
@@ -1047,6 +1042,11 @@ lib[:take_snapshot] = lambda do |targets, label, cascade_types = []|
     entry
   end
   snap = { 'format' => 1, 'label' => label, 'taken_at' => Time.now.utc.iso8601, 'records' => records }
+  # Which forms each PDC model had, so a restore can remove forms created since
+  models = targets.select { |t| t['table'] == 'MachineModelType' }.map { |t| t['find']['model_type'] }
+  snap['model_forms'] = models.each_with_object({}) do |mt, h|
+    h[mt] = Stencil.where(model_type: mt, deleted_at: nil).to_a.select { |f| lib[:form_types].call(f).include?('form') }.map(&:id)
+  end
   snap['cascade'] = lib[:capture_cascade].call(cascade_types) unless cascade_types.empty?
   snap
 end

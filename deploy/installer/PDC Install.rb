@@ -91,6 +91,7 @@ install = lambda do |log|
   live_or_gone = lambda do |rel|
     rel.where(deleted_at: nil).first || rel.where.not(deleted_at: nil).order(deleted_at: :desc).first
   end
+  revived_models = []   # brought back this run: their forms are recreated below
   bundle['models'].each do |m|
     rec = live_or_gone.call(MachineModelType.where(model_type: m['model_type']))
     want = { 'name' => m['name'], 'show_in_plus_menu' => m['show_in_plus_menu'] }
@@ -103,6 +104,7 @@ install = lambda do |log|
       rec.deleted_at = nil
       want.each { |c, v| rec[c] = v }
       rec.save!
+      revived_models << m['model_type']
       log['restored model'] << m['key']
     else
       reconcile.call("model #{m['key']}", rec, want)
@@ -252,31 +254,26 @@ install = lambda do |log|
       next
     end
     raw = JSON.generate(doc, ascii_only: true)
-    # The most recently updated one, if there are several (bringing a model
-    # back makes Fluxx un-delete every form it ever had)
-    named = Stencil.where(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name'])
-    st = named.where(deleted_at: nil).order(updated_at: :desc, id: :desc).first ||
-         named.where.not(deleted_at: nil).order(deleted_at: :desc).first
-    if st.nil?
-      st = Stencil.new(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name'], enabled: true)
-      st.form_type = %w[form list show]
-      lib[:write_stencil].call(st, raw)
-      log['created form'] << sp['key']
-    elsif st.deleted_at.present? || lib[:stencil_sha].call(st['json'], volatile, []) != lib[:stencil_sha].call(raw, volatile, [])
-      how = st.deleted_at.present? ? 'restored form' : 'overwrote'
-      st.deleted_at = nil
-      lib[:write_stencil].call(st, raw)
-      log[how] << "form #{sp['key']}"
-    else
+    # The model's active forms. If one already matches the repo (and the model
+    # wasn't just brought back), it's kept. Otherwise a new form is created from
+    # the repo and every other form of the model is switched off, left for the
+    # admin to keep or delete: instances manage forms differently, so Install
+    # never guesses which existing form to overwrite.
+    forms = Stencil.where(model_type: sp['model_type'], deleted_at: nil).to_a.select { |f| lib[:form_types].call(f).include?('form') }
+    active = forms.select(&:enabled)
+    match = active.find { |f| lib[:stencil_sha].call(f['json'], volatile, []) == lib[:stencil_sha].call(raw, volatile, []) }
+    if match && !revived_models.include?(sp['model_type'])
       log['ok'] << "form #{sp['key']}"
+      next
     end
-    # Each PDC model keeps one form: any other form of the model is a leftover
-    # copy (filters stay)
-    Stencil.where(model_type: sp['model_type'], deleted_at: nil).where.not(id: st.id).each do |extra|
-      next unless lib[:form_types].call(extra).include?('form')
-      extra.deleted_at = Time.now
-      extra.save!
-      log['removed'] << "extra form #{sp['model_type']} #{extra.name.to_s.strip} (stencil #{extra.id})"
+    st = Stencil.new(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name'], enabled: true)
+    st.form_type = %w[form list show]
+    lib[:write_stencil].call(st, raw)
+    log['created form'] << "#{sp['key']} (stencil #{st.id})"
+    active.each do |old|
+      old.enabled = false
+      old.save!
+      log['switched off (kept for you to delete or switch back on)'] << "form #{sp['model_type']} #{old.name.to_s.strip} (stencil #{old.id})"
     end
   end
   # Consent permissions for each PDC Grantee Profile. Profiles not chosen keep
@@ -545,7 +542,12 @@ install = lambda do |log|
 end
 
 # Worked out before anything changes, so the forms it adds to are in the snapshot
-plan = lib[:placement_plan].call(model, bundle['scope'])
+# Grant forms are copied (keeping the original as a rollback) only on the
+# initial install: no grant form has PDC elements yet and no "(PDC)" copy
+# exists. After that, a chosen form missing the PDC component gets it in place.
+gr_forms = Stencil.where(model_type: bundle['scope']['grant_request']['model_type'], deleted_at: nil)
+initial_install = !gr_forms.where("json LIKE '%PDC:ELEMENT%'").exists? && gr_forms.to_a.none? { |f| f.name.to_s.strip.end_with?('(PDC)') }
+plan = lib[:placement_plan].call(model, bundle['scope'], initial_install)
 copies = plan['forms'].select { |f| f['copy'] }.map do |f|
   { 'table' => 'Stencil', 'key' => "PDC copy of stencil #{f['stencil_id']}",
     'find' => { 'model_type' => f['model_type'], 'model_theme_id' => f['copy']['model_theme_id'], 'name' => f['copy']['name'] } }
