@@ -10,15 +10,17 @@
 #     content is the unedited repo copy), the GrantRequest PDC fields on
 #     forms, and a group left holding only PDC elements
 #   - the ###PDC_CODE### block in GrantRequest's granted hook
-#   - PDC buttons, states, methods (including the secret ones) and fields,
-#     and the PDC models' Before New / After Create code
+#   - PDC buttons, states, methods (including the secret ones) and fields
+#   - the PDC models themselves, as Fluxx removes a model: workflows, forms,
+#     themes, then the model. Fluxx's cleanup then soft-deletes everything
+#     else tied to each model, records included; the snapshot lists those
+#     rows first, so Restore Previous brings them back too
 # Listed for review, never removed:
 #   - PDC-looking elements that were edited, are ambiguous, or have no marker
 #     and don't match the repo; groups that also hold other content
 #   - methods, states and buttons on the PDC models that PDC didn't ship
-#     (someone built them; they own them)
-#   - the PDC models themselves and their records: delete those in Fluxx
-#     once you're sure, then this deploy model
+#     (they go with their model, and come back with Restore Previous)
+#   - this deploy model: delete it last, once you're sure
 #
 # Before changing anything, the whole PDC configuration is saved to
 # previous_configuration; Restore Previous puts it back. Results go to
@@ -138,7 +140,7 @@ uninstall = lambda do |log|
     log['removed'] << "#{x['key']} (PDC block only)"
   end
 
-  # 3. Buttons, states, methods, theme code, fields
+  # 3. Buttons, states, methods, fields
   bundle['events'].each do |e|
     t = { 'table' => 'MachineEvent', 'find' => { 'model_type' => e['model_type'], 'theme' => e['theme'], 'button_name' => e['button_name'] } }
     (rec = lib[:snapshot_find].call(t, true)) ? soft_delete.call(rec, e['key']) : log['already gone'] << e['key']
@@ -151,34 +153,38 @@ uninstall = lambda do |log|
     rec = ModelMethod.where(model_type: m['model_type'], name: m['name'], deleted_at: nil).first
     rec ? soft_delete.call(rec, m['key']) : log['already gone'] << m['key']
   end
-  bundle['themes'].each do |th|
-    rec = ModelTheme.where(model_type: th['model_type'], name: th['name'], deleted_at: nil).first
-    next if rec.nil? || (rec.unsafe_before_new_block.blank? && rec.unsafe_after_create_block.blank?)
-    rec.unsafe_before_new_block = nil
-    rec.unsafe_after_create_block = nil
-    rec.save!
-    log['cleared theme code'] << th['key']
-  end
   bundle['attributes'].each do |a|
     rec = ModelAttribute.where(model_type: a['model_type'], name: a['name'], deleted_at: nil).first
     rec ? soft_delete.call(rec, a['key']) : log['already gone'] << a['key']
   end
 
-  # 4. What's left on the PDC models isn't PDC's to remove
-  ModelMethod.where(model_type: owned, deleted_at: nil).each { |mm| log['review: not shipped by PDC, left alone'] << "#{mm.model_type}##{mm.name}" }
-  MachineState.where(model_type: owned, deleted_at: nil).each { |s| log['review: not shipped by PDC, left alone'] << "#{s.model_type}:#{s.name}" }
+  # 4. Anything else on the PDC models wasn't shipped by PDC; it goes with
+  # its model below, so it's listed (Restore Previous brings it back)
+  ModelMethod.where(model_type: owned, deleted_at: nil).each { |mm| log['review: not shipped by PDC, removed with its model'] << "#{mm.model_type}##{mm.name}" }
+  MachineState.where(model_type: owned, deleted_at: nil).each { |s| log['review: not shipped by PDC, removed with its model'] << "#{s.model_type}:#{s.name}" }
   ModelTheme.where(model_type: owned, deleted_at: nil).each do |th|
     MachineWorkflow.where(model_theme_id: th.id, deleted_at: nil).each do |wf|
-      MachineEvent.where(machine_workflow_id: wf.id, deleted_at: nil).each { |ev| log['review: not shipped by PDC, left alone'] << "#{th.model_type}/#{th.name}>#{ev.button_name}" }
+      MachineEvent.where(machine_workflow_id: wf.id, deleted_at: nil).each { |ev| log['review: not shipped by PDC, removed with its model'] << "#{th.model_type}/#{th.name}>#{ev.button_name}" }
     end
   end
+
+  # 5. The PDC models themselves, as Fluxx removes a model: their workflows,
+  # forms and themes, then the model. Fluxx's own cleanup then soft-deletes
+  # the rest tied to each model, records included; the snapshot taken before
+  # this run lists those rows so Restore Previous can bring them back.
+  ModelTheme.where(model_type: owned).each do |th|
+    MachineWorkflow.where(model_theme_id: th.id, deleted_at: nil).each { |wf| soft_delete.call(wf, "workflow #{th.model_type}/#{th.name}") }
+  end
+  Stencil.where(model_type: owned, deleted_at: nil).each { |st| soft_delete.call(st, "form #{st.model_type} #{st.name.to_s.strip} (stencil #{st.id})") }
+  ModelTheme.where(model_type: owned, deleted_at: nil).each { |th| soft_delete.call(th, "theme #{th.model_type}/#{th.name}") }
   MachineModelType.where(model_type: owned, deleted_at: nil).each do |mt|
     count = (Object.const_get(mt.model_type).where(deleted_at: nil).count rescue nil)
-    log['delete by hand in Fluxx when sure'] << "model #{mt.name} (#{mt.model_type})#{count ? ", #{count} records" : ''}"
+    soft_delete.call(mt, "model #{mt.name} (#{mt.model_type})#{count ? ", with its #{count} records" : ''}")
   end
   log['delete by hand in Fluxx when sure'] << "this deploy model (#{model.class.name}), last: Restore Previous lives here"
 
   { 'mode' => 'removed PDC components' }
 end
 
-lib[:run_with_snapshots].call(model, 'Uninstall', 'uninstall_results', lib[:snapshot_targets].call(bundle), save_now, uninstall)
+owned_types = bundle['scope']['owned_model_types'].keys - [model.class.name]
+lib[:run_with_snapshots].call(model, 'Uninstall', 'uninstall_results', lib[:snapshot_targets].call(bundle), save_now, uninstall, owned_types)
