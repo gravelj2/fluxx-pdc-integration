@@ -329,8 +329,7 @@ lib[:theme_forms] = lambda do |theme|
          .sort_by(&:id)
 end
 
-# Name of the PDC copy Install makes of a grant form
-lib[:pdc_copy_name] = lambda { |name| "#{name.to_s.strip} (PDC)" }
+
 
 # The first GenericTemplate stencil on a profile's dashboard: UserProfile ->
 # first dashboard template -> its cards -> the first /generic_templates/{id}.
@@ -346,15 +345,13 @@ end
 
 # What Install adds to which forms: one entry per form, with the PDC element
 # ids (and native fields) it lacks, plus notes for choices that are missing.
-lib[:placement_plan] = lambda do |deploy_model, scope, allow_copies = true|
+lib[:placement_plan] = lambda do |deploy_model, scope|
   rules = scope['placement'] || {}
   located = lib[:locate_elements].call(scope, false)
   on_form = lambda { |stencil_id| located.select { |_, locs| locs.any? { |l| l['stencil_id'] == stencil_id } }.keys }
   plan = []
   notes = []
-  # copy: a grant form with no PDC elements yet is copied first, and the copy
-  # gets them, so the original stays as a rollback
-  add = lambda do |stencil, set, why, copy = false|
+  add = lambda do |stencil, set, why, _unused = false|
     present = on_form.call(stencil.id)
     missing = set - present
     fields = Array(scope['required_stencil_fields']).select do |req|
@@ -363,11 +360,6 @@ lib[:placement_plan] = lambda do |deploy_model, scope, allow_copies = true|
     end.map { |req| req['attribute'] }
     entry = { 'stencil_id' => stencil.id, 'model_type' => stencil.model_type, 'where' => "stencil #{stencil.id} (#{stencil.name.to_s.strip}, #{why})",
               'elements' => missing, 'fields' => fields }
-    # A form that is already a PDC copy (e.g. after an Uninstall) is updated in
-    # place, never copied again
-    if allow_copies && copy && present.empty? && missing.any? && !stencil.name.to_s.strip.end_with?('(PDC)')
-      entry['copy'] = { 'name' => lib[:pdc_copy_name].call(stencil.name), 'model_theme_id' => stencil.model_theme_id }
-    end
     plan << entry
   end
   interactive = lib[:selected_themes].call(deploy_model, :grant_request_themes)
@@ -1027,7 +1019,9 @@ lib[:restore_cascade] = lambda do |per|
 end
 
 lib[:take_snapshot] = lambda do |targets, label, cascade_types = []|
-  records = targets.map do |t|
+  # 'FormSet' targets only record which forms a model type has (see model_forms)
+  form_sets = targets.select { |t| t['table'] == 'FormSet' }
+  records = (targets - form_sets).map do |t|
     rec = lib[:snapshot_find].call(t)
     entry = t.merge('id' => rec&.id)
     if rec
@@ -1043,7 +1037,7 @@ lib[:take_snapshot] = lambda do |targets, label, cascade_types = []|
   end
   snap = { 'format' => 1, 'label' => label, 'taken_at' => Time.now.utc.iso8601, 'records' => records }
   # Which forms each PDC model had, so a restore can remove forms created since
-  models = targets.select { |t| t['table'] == 'MachineModelType' }.map { |t| t['find']['model_type'] }
+  models = targets.select { |t| %w[MachineModelType FormSet].include?(t['table']) }.map { |t| t['find']['model_type'] }.uniq
   snap['model_forms'] = models.each_with_object({}) do |mt, h|
     h[mt] = Stencil.where(model_type: mt, deleted_at: nil).to_a.select { |f| lib[:form_types].call(f).include?('form') }.map(&:id)
   end

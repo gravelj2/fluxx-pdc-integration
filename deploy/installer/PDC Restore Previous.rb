@@ -38,6 +38,18 @@ rescue => e
 end
 latest_by_key = latest ? latest['records'].each_with_object({}) { |r, h| h[r['key']] = r } : {}
 targets = previous ? previous['records'].map { |r| r.slice('table', 'key', 'find', 'secret', 'cols_only', 'only_cols') } : []
+# Keep recording the same form sets, and the forms this restore may remove
+# (PDC model forms, "(PDC)" grant copies) by id, so this restore can be undone too
+form_types_of = previous ? (previous['model_forms'] || {}).keys : []
+targets += form_types_of.map { |mt| { 'table' => 'FormSet', 'key' => "forms #{mt}", 'find' => { 'model_type' => mt } } }
+form_types_of.each do |mt|
+  dynamic = MachineModelType.where(model_type: mt).exists?
+  Stencil.where(model_type: mt, deleted_at: nil).each do |f|
+    next unless dynamic || f.name.to_s.strip.end_with?('(PDC)')
+    next if targets.any? { |t| t['table'] == 'Stencil' && t['find'] == { 'id' => f.id } }
+    targets << { 'table' => 'Stencil', 'key' => "stencil #{f.id}", 'find' => { 'id' => f.id } }
+  end
+end
 
 restore = lambda do |log|
   raise(read_error || 'There is no previous configuration to restore yet') if previous.nil?
@@ -228,11 +240,14 @@ restore = lambda do |log|
   warnings = []
   warnings << "The last action's after-snapshot couldn't be read (#{latest_error}), so changes made since then weren't checked" if latest.nil? && model.respond_to?(:current_configuration) && model.current_configuration.present?
   warnings << "There's no after-snapshot of the last action, so changes made since then weren't checked" if latest.nil? && !(model.respond_to?(:current_configuration) && model.current_configuration.present?)
-  # Forms of the PDC models created since (e.g. the new form Install makes)
+  # Forms created since: any new form of a PDC model, and the "(PDC)" copies
+  # of grant forms (a grant form someone made by hand is never touched)
   (previous['model_forms'] || {}).each do |mt, ids|
-    next unless MachineModelType.where(model_type: mt, deleted_at: nil).exists?
+    dynamic = MachineModelType.where(model_type: mt).exists?
+    next if dynamic && !MachineModelType.where(model_type: mt, deleted_at: nil).exists?
     Stencil.where(model_type: mt, deleted_at: nil).where.not(id: ids).each do |f|
       next unless lib[:form_types].call(f).include?('form')
+      next if !dynamic && !f.name.to_s.strip.end_with?('(PDC)')
       remove.call(f)
       log['removed (was not there before)'] << "form #{mt} #{f.name.to_s.strip} (stencil #{f.id})"
     end
