@@ -100,12 +100,12 @@ that isn't `MATCH`.
   repo's model forms are TRN's and are translated: profile restrictions become the
   **PDC Staff Profile**, and dropdown option ids in show/hide conditions become this
   instance's ids for the same options.
-- **The PDC models' forms:** if a model's active form already matches the repo, it's kept.
-  Otherwise (it was edited, or the model was just brought back, which makes Fluxx revive
-  every form it ever had) Install creates a new form from the repo and switches the
-  model's other forms off, leaving them for you to delete or switch back on. Install
-  never guesses which existing form to overwrite. Restore Previous removes the new form
-  and switches the old ones back on.
+- **The PDC models' forms:** each PDC model has one active form. If there's exactly one,
+  Install brings it up to the repo in place. If there's none, Install creates a new one
+  (it never brings back a deleted form, including the old forms Fluxx un-deletes when a
+  model is brought back). If there are several, Install creates a new one named with
+  today's date (YYYY-MM-DD) and switches the others off. Restore Previous removes forms
+  Install created and switches the others back on.
 - **Their fields, options, methods, theme code, states and buttons**, and the
   GrantRequest pieces (fields and `PDC` methods).
 - **PDC elements** go in a PDC group at the bottom of the grant forms of each theme
@@ -117,13 +117,15 @@ that isn't `MATCH`.
   enabled forms per theme (for example one per user profile), so a theme with an
   internal and an external form gets it on both; remove it from any form grantees don't
   use. Disabled forms and filters are never touched.
-- **Grant forms are copied on the initial install only** (no grant form has PDC elements
-  and no "(PDC)" copy exists yet). Install copies each chosen form as "*name* (PDC)",
-  adds the component to the copy, switches the copy on and the original off; the
-  original, unchanged, is the rollback inside Fluxx. After that, Install never copies a
-  grant form: a form missing the component (a theme added later, or after an Uninstall)
-  gets it in place. Restore Previous removes copies it made and switches the originals
-  back on; Uninstall removes the PDC elements and lists the copies.
+- **Grant forms are never edited in place.** Whenever an active grant form needs a
+  change (a missing PDC component, or a PDC element whose text or settings differ from
+  the repo), Install copies it exactly (visibility, profile restrictions and every other
+  setting kept), makes the change on the copy, switches the copy on and the original
+  off. The original, unchanged, is the rollback inside Fluxx. " (PDC)" is added to the
+  copy's name once, so names can repeat. A theme with several active forms gets a copy
+  of each. Switched-off forms are left alone. Restore Previous removes the copies and
+  switches the originals back on; Uninstall removes the PDC elements and lists the copies.
+  (The grantee dashboard page is updated in place.)
 - **The `###PDC_CODE###` block** goes at the top of GrantRequest's `granted` hook, so it
   always runs.
 - If a PDC model still can't be set up, Install touches only the PDC models that exist:

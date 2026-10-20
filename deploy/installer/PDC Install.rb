@@ -91,7 +91,6 @@ install = lambda do |log|
   live_or_gone = lambda do |rel|
     rel.where(deleted_at: nil).first || rel.where.not(deleted_at: nil).order(deleted_at: :desc).first
   end
-  revived_models = []   # brought back this run: their forms are recreated below
   bundle['models'].each do |m|
     rec = live_or_gone.call(MachineModelType.where(model_type: m['model_type']))
     want = { 'name' => m['name'], 'show_in_plus_menu' => m['show_in_plus_menu'] }
@@ -101,10 +100,16 @@ install = lambda do |log|
       rec.save!
       log['created model'] << m['key']
     elsif rec.deleted_at.present?
+      # Bringing a model back makes Fluxx un-delete every form it ever had;
+      # forms that were deleted stay deleted (the form step below makes a new one)
+      gone_forms = Stencil.where(model_type: m['model_type']).where.not(deleted_at: nil).pluck(:id)
       rec.deleted_at = nil
       want.each { |c, v| rec[c] = v }
       rec.save!
-      revived_models << m['model_type']
+      Stencil.where(id: gone_forms, deleted_at: nil).each do |f|
+        f.deleted_at = Time.now
+        f.save!
+      end
       log['restored model'] << m['key']
     else
       reconcile.call("model #{m['key']}", rec, want)
@@ -254,26 +259,30 @@ install = lambda do |log|
       next
     end
     raw = JSON.generate(doc, ascii_only: true)
-    # The model's active forms. If one already matches the repo (and the model
-    # wasn't just brought back), it's kept. Otherwise a new form is created from
-    # the repo and every other form of the model is switched off, left for the
-    # admin to keep or delete: instances manage forms differently, so Install
-    # never guesses which existing form to overwrite.
-    forms = Stencil.where(model_type: sp['model_type'], deleted_at: nil).to_a.select { |f| lib[:form_types].call(f).include?('form') }
-    active = forms.select(&:enabled)
-    match = active.find { |f| lib[:stencil_sha].call(f['json'], volatile, []) == lib[:stencil_sha].call(raw, volatile, []) }
-    if match && !revived_models.include?(sp['model_type'])
-      log['ok'] << "form #{sp['key']}"
+    # A PDC model has one form: with exactly one active form, it's brought up
+    # to the repo in place; with none, a new form is created (deleted forms are
+    # never brought back); with several, a new form named with today's date is
+    # created and the others are switched off.
+    active = Stencil.where(model_type: sp['model_type'], deleted_at: nil).to_a.select { |f| f.enabled && lib[:form_types].call(f).include?('form') }
+    if active.size == 1
+      st = active.first
+      if lib[:stencil_sha].call(st['json'], volatile, []) == lib[:stencil_sha].call(raw, volatile, [])
+        log['ok'] << "form #{sp['key']}"
+      else
+        lib[:write_stencil].call(st, raw)
+        log['overwrote'] << "form #{sp['key']} (stencil #{st.id})"
+      end
       next
     end
-    st = Stencil.new(model_type: sp['model_type'], model_theme_id: theme.id, name: sp['name'], enabled: true)
+    name = active.empty? ? sp['name'] : Time.now.strftime('%Y-%m-%d')
+    st = Stencil.new(model_type: sp['model_type'], model_theme_id: theme.id, name: name, enabled: true)
     st.form_type = %w[form list show]
     lib[:write_stencil].call(st, raw)
-    log['created form'] << "#{sp['key']} (stencil #{st.id})"
+    log['created form'] << "#{sp['key']} (stencil #{st.id}, #{name})"
     active.each do |old|
       old.enabled = false
       old.save!
-      log['switched off (kept for you to delete or switch back on)'] << "form #{sp['model_type']} #{old.name.to_s.strip} (stencil #{old.id})"
+      log['switched off (one form per PDC model)'] << "form #{sp['model_type']} #{old.name.to_s.strip} (stencil #{old.id})"
     end
   end
   # Consent permissions for each PDC Grantee Profile. Profiles not chosen keep
@@ -432,79 +441,55 @@ install = lambda do |log|
     end
   end
 
-  # PDC stencil elements already on forms: replace text and settings in place
+  # PDC elements on forms, one pass per form that needs anything: updated text
+  # or settings for PDC elements already there, and (on the chosen themes'
+  # forms and the grantee dashboard page) missing elements and fields, added
+  # in a PDC group at the bottom for the admin to move.
+  #   an active grant form: copied exactly (visibility, profiles and every other
+  #     setting kept); the copy gets the changes and is switched on, the
+  #     original is switched off as the rollback. " (PDC)" is added to the name
+  #     once. With several active forms, each one is copied.
+  #   a switched-off grant form: left alone (it's a rollback)
+  #   anything else (the dashboard page): changed in place
   specs = b['stencil_elements']
   # Only the elements Install handles this run (none while a PDC model is missing)
   located = lib[:locate_elements].call(scope, false).select { |id, _| specs.any? { |s| s['id'] == id } }
-  # The same string as it appears inside stored JSON: plain, or with < > &
-  # escaped the way Rails' to_json writes them.
-  encodings = lambda do |str|
-    plain = JSON.generate(str)[1..-2]
-    [plain, plain.gsub('&', '\u0026').gsub('<', '\u003c').gsub('>', '\u003e')].uniq
-  end
   by_stencil = Hash.new { |h, k| h[k] = [] }
   located.each { |id, locs| locs.each { |l| by_stencil[l['stencil_id']] << l.merge('id' => id) } }
-  by_stencil.each do |stencil_id, locs|
+  plan_by_stencil = missing_models.empty? ? plan['forms'].each_with_object({}) { |f, h| h[f['stencil_id']] = f } : {}
+  plan['notes'].each { |n| log['note'] << n } if missing_models.empty?
+  group_label = (scope['placement'] || {})['group_label'] || 'PDC'
+  attrs_by_name = bundle['attributes'].each_with_object({}) { |a, h| h[[a['model_type'], a['name']]] = a }
+  gr_type = scope['grant_request']['model_type']
+  (by_stencil.keys | plan_by_stencil.keys).each do |stencil_id|
     st = Stencil.find(stencil_id)
-    raw = st['json'].to_s
-    doc = JSON.parse(raw)
-    changes = []
-    locs.group_by { |l| l['id'] }.each do |id, here|
-      where = "#{id} @ stencil #{stencil_id} (#{st.name.to_s.strip})"
+    doc = JSON.parse(st['json'].to_s)
+    done = []   # [status, what] for this form
+    by_stencil[stencil_id].group_by { |l| l['id'] }.each do |id, here|
       if here.size > 1 || here.any? { |l| Array(l['also_matches']).any? }
-        log['duplicate or ambiguous (fix by hand)'] << where
+        log['duplicate or ambiguous (fix by hand)'] << "#{id} @ stencil #{stencil_id} (#{st.name.to_s.strip})"
         next
       end
       spec = specs.find { |s| s['id'] == id }
       node = here.first['trail'].inject(doc) { |n, i| n['elements'][i] }
       text = lib[:element_text].call(node)
       if here.first['via'] == 'fingerprint' && ![lib[:sha].call(text), lib[:sha].call(CGI.unescapeHTML(text))].include?(spec['unmarked_sha256'])
-        log['unmarked and edited (left alone; review, then replace by hand)'] << where
+        log['unmarked and edited (left alone; review, then replace by hand)'] << "#{id} @ stencil #{stencil_id} (#{st.name.to_s.strip})"
         next
       end
       text_ok = lib[:sha].call(text) == lib[:sha].call(spec['text'])
       bad = lib[:element_config_problems].call(node, required_config)
       if text_ok && bad.empty?
-        log['ok'] << where
+        log['ok'] << "#{id} @ stencil #{stencil_id} (#{st.name.to_s.strip})"
         next
       end
-      changes << { 'node' => node, 'old' => text, 'new' => spec['text'], 'settings' => bad.any?,
-                   'where' => "#{where} [#{[text_ok ? nil : 'text', *bad].compact.join(', ')}]" }
+      cfg = node['config']
+      cfg['text'] = spec['text']
+      required_config.each { |k, want| cfg[k] = want ? true : '0' unless lib[:truthy].call(cfg[k]) == want }
+      done << ['wrote element', "#{id} [#{[text_ok ? nil : 'text', *bad].compact.join(', ')}]"]
     end
-    next if changes.empty?
-    # Swap only each element's text inside the stored JSON when that's
-    # unambiguous; otherwise (or to change settings) rewrite the document.
-    new_raw = changes.any? { |c| c['settings'] } ? nil : raw.dup
-    changes.each do |c|
-      break if new_raw.nil?
-      pair = encodings.call(c['old']).zip(encodings.call(c['new'])).find { |o, _| new_raw.scan(o).size == 1 }
-      new_raw = pair && new_raw.sub(pair[0]) { pair[1] }
-    end
-    if new_raw.nil?
-      changes.each do |c|
-        cfg = c['node']['config']
-        cfg['text'] = c['new']
-        required_config.each { |k, want| cfg[k] = want ? true : '0' unless lib[:truthy].call(cfg[k]) == want }
-      end
-      new_raw = JSON.generate(doc, ascii_only: true)
-    end
-    check = lib[:stencil_elements].call(new_raw).map { |e| lib[:element_text].call(e['element']) }
-    missing = changes.reject { |c| check.include?(c['new']) }
-    raise "stencil #{stencil_id}: verification failed for #{missing.map { |c| c['where'] }.join('; ')}; nothing saved" if missing.any?
-    lib[:write_stencil].call(st, new_raw)
-    changes.each { |c| log['wrote element'] << c['where'] }
-  end
-
-  # PDC elements (and the native fields they need) that aren't on the chosen
-  # forms yet: added in a PDC group at the bottom; admins move them afterwards
-  if missing_models.empty?
-    plan['notes'].each { |n| log['note'] << n }
-    group_label = (scope['placement'] || {})['group_label'] || 'PDC'
-    attrs_by_name = bundle['attributes'].each_with_object({}) { |a, h| h[[a['model_type'], a['name']]] = a }
-    plan['forms'].each do |f|
-      next if f['elements'].empty? && f['fields'].empty?
-      st = Stencil.find(f['stencil_id'])
-      doc = JSON.parse(st['json'].to_s)
+    f = plan_by_stencil[stencil_id]
+    if f && (f['elements'].any? || f['fields'].any?)
       kids = f['elements'].map { |id| lib[:new_element].call('text', f['model_type'], 'text' => specs.find { |s| s['id'] == id }['text']) }
       kids += f['fields'].map do |name|
         a = attrs_by_name[[f['model_type'], name]] || {}
@@ -512,51 +497,43 @@ install = lambda do |log|
                                'template' => (scope['stencil_field_templates'] || {})["#{f['model_type']}.#{name}"])
       end
       doc['elements'] = Array(doc['elements']) + [lib[:new_element].call('group', f['model_type'], 'label' => group_label, 'elements' => kids)]
-      raw = JSON.generate(doc, ascii_only: true)
-      where = f['where']
-      if f['copy']
-        # The original stays as it is, switched off, as the rollback
-        # Bring back a copy removed earlier (e.g. by Restore Previous) before making a new one
-        copy = Stencil.where(model_type: st.model_type, model_theme_id: st.model_theme_id, name: f['copy']['name'])
-                      .where.not(deleted_at: nil).order(deleted_at: :desc).first
-        if copy
-          copy.deleted_at = nil
-        else
-          copy = st.dup
-        end
-        copy['name'] = f['copy']['name']
-        copy.enabled = true
-        lib[:write_stencil].call(copy, raw)
-        st.enabled = false
-        st.save!
-        log['copied form (PDC added to the copy; original kept, switched off)'] << "stencil #{st.id} -> #{copy.id} #{copy.name}"
-        where = "stencil #{copy.id} (#{copy.name})"
-      else
-        lib[:write_stencil].call(st, raw)
-      end
-      (f['elements'] + f['fields'].map { |n| "field #{n}" }).each { |what| log['added to form (bottom; move it where it belongs)'] << "#{what} @ #{where}" }
+      (f['elements'] + f['fields'].map { |n| "field #{n}" }).each { |what| done << ['added to form (bottom; move it where it belongs)', what] }
     end
+    next if done.empty?
+    raw = JSON.generate(doc, ascii_only: true)
+    if st.model_type == gr_type
+      unless st.enabled
+        log['left alone: switched-off grant form (a rollback)'] << "stencil #{st.id} (#{st.name.to_s.strip})"
+        next
+      end
+      copy = st.dup
+      base = st.name.to_s.strip
+      copy['name'] = base.end_with?('(PDC)') ? base : "#{base} (PDC)"
+      copy.enabled = true
+      lib[:write_stencil].call(copy, raw)
+      st.enabled = false
+      st.save!
+      log['copied form (changes on the copy; original kept, switched off)'] << "stencil #{st.id} -> #{copy.id} (#{copy.name})"
+      target = "stencil #{copy.id} (#{copy.name})"
+    else
+      lib[:write_stencil].call(st, raw)
+      target = "stencil #{st.id} (#{st.name.to_s.strip})"
+    end
+    done.each { |status, what| log[status] << "#{what} @ #{target}" }
   end
 
   { 'mode' => "from #{lib[:repo_label].call(model)}" }
 end
 
-# Worked out before anything changes, so the forms it adds to are in the snapshot
-# Grant forms are copied (keeping the original as a rollback) only on the
-# initial install: no grant form has PDC elements yet and no "(PDC)" copy
-# exists. After that, a chosen form missing the PDC component gets it in place.
-gr_forms = Stencil.where(model_type: bundle['scope']['grant_request']['model_type'], deleted_at: nil)
-initial_install = !gr_forms.where("json LIKE '%PDC:ELEMENT%'").exists? && gr_forms.to_a.none? { |f| f.name.to_s.strip.end_with?('(PDC)') }
-plan = lib[:placement_plan].call(model, bundle['scope'], initial_install)
-copies = plan['forms'].select { |f| f['copy'] }.map do |f|
-  { 'table' => 'Stencil', 'key' => "PDC copy of stencil #{f['stencil_id']}",
-    'find' => { 'model_type' => f['model_type'], 'model_theme_id' => f['copy']['model_theme_id'], 'name' => f['copy']['name'] } }
-end
+# Worked out before anything changes, so the forms it touches are in the snapshot
+plan = lib[:placement_plan].call(model, bundle['scope'])
+# Which grant forms exist now, so Restore Previous can remove the copies made
+form_sets = [{ 'table' => 'FormSet', 'key' => 'grant forms', 'find' => { 'model_type' => bundle['scope']['grant_request']['model_type'] } }]
 rules = lib[:selected_profiles].call(model, :pdc_grantee_profile).flat_map do |gp|
   Array(bundle['permissions']).map do |pm|
     { 'table' => 'UserProfileRule', 'key' => "#{pm['key']} for #{gp.name}",
       'find' => { 'model_type' => pm['model_type'], 'permission_name' => pm['permission_name'], 'user_profile_id' => gp.id } }
   end
 end
-targets = lib[:snapshot_targets].call(bundle, plan['forms'].map { |f| f['stencil_id'] }, copies + rules)
+targets = lib[:snapshot_targets].call(bundle, plan['forms'].map { |f| f['stencil_id'] }, form_sets + rules)
 lib[:run_with_snapshots].call(model, 'Install', 'install_results', targets, save_now, install)
