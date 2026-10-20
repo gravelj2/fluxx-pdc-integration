@@ -10,7 +10,8 @@
 #     content is the unedited repo copy), the GrantRequest PDC fields on
 #     forms, and a group left holding only PDC elements
 #   - the ###PDC_CODE### block in GrantRequest's granted hook
-#   - PDC buttons, states, methods (including the secret ones) and fields
+#   - PDC buttons, states, methods and fields (the secret client ID / secret
+#     methods are never touched)
 #   - the PDC models themselves, as Fluxx removes a model: workflows, forms,
 #     themes, then the model. Fluxx's cleanup then soft-deletes everything
 #     else tied to each model, records included. Restore Previous brings back
@@ -151,6 +152,9 @@ uninstall = lambda do |log|
     rec ? soft_delete.call(rec, s['key']) : log['already gone'] << s['key']
   end
   bundle['methods'].each do |m|
+    # The secret methods (PDC client ID and secret) are never touched; if their
+    # model is removed below, Fluxx keeps their values and Install brings them back
+    next log['kept (secret, never touched)'] << m['key'] if m['secret']
     rec = ModelMethod.where(model_type: m['model_type'], name: m['name'], deleted_at: nil).first
     rec ? soft_delete.call(rec, m['key']) : log['already gone'] << m['key']
   end
