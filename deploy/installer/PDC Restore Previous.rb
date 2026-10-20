@@ -73,12 +73,15 @@ restore = lambda do |log|
   # states before the buttons that point at them. Removals of things that
   # didn't exist before run afterwards in reverse, so options go before their
   # field.
+  # Decided before anything changes, so this restore's own changes (a record
+  # can appear under more than one key) never count as someone else's
+  changed_keys = previous['records'].select { |r| changed_since.call(r) }.map { |r| r['key'] }
   removals = previous['records'].select { |r| r['id'].nil? && r['table'] != 'Stencil' && !r['cols_only'] }
   (previous['records'] - removals + removals.reverse).each do |r|
     key = r['key']
     klass = lib[:snapshot_class].call(r['table'])
     cols = r['cols'] || {}
-    if changed_since.call(r)
+    if changed_keys.include?(key)
       log['review: changed since the last action, left alone'] << key
       next
     end
