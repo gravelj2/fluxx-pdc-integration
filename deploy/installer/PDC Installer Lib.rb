@@ -971,7 +971,57 @@ lib[:event_links] = lambda do |ev|
     'roles' => MachineEventRole.where(machine_event_id: ev.id).pluck(:role_id).sort }
 end
 
-lib[:take_snapshot] = lambda do |targets, label|
+# Rows Fluxx soft-deletes along with a model (its records, their documents,
+# and every config row naming the model type, as MachineModelType's
+# handle_deletion_of_related_config does), so a restore can bring back exactly
+# the ones that were live: { model_type => { "table.column" => [ids] } }
+lib[:capture_cascade] = lambda do |model_types|
+  conn = ActiveRecord::Base.connection
+  rel_cols = (MachineModelType::MODEL_TYPE_RELATION_COLUMN_NAMES rescue ['model_type'])
+  # Fluxx's own list of configuration tables; else the tables seen holding PDC config on TRN
+  tables = (Client.saas_tables rescue nil) ||
+           %w[model_attributes model_methods model_themes machine_workflows machine_states stencils user_profile_rules
+              field_labels field_lists field_stats relationship_schema_mappings]
+  tables = (tables - ['machine_model_types']).select { |t| conn.table_exists?(t) rescue false }
+  ids_where = lambda do |t, col, value|
+    conn.select_values("SELECT id FROM #{conn.quote_table_name(t)} WHERE #{conn.quote_column_name(col)} = #{conn.quote(value)} AND deleted_at IS NULL").map(&:to_i)
+  end
+  model_types.each_with_object({}) do |mt, out|
+    per = {}
+    tables.each do |t|
+      cols = (conn.columns(t).map(&:name) rescue [])
+      next unless cols.include?('deleted_at') && cols.include?('id')
+      (rel_cols & cols).each do |col|
+        ids = ids_where.call(t, col, mt)
+        per["#{t}.#{col}"] = ids unless ids.empty?
+      end
+    end
+    if conn.table_exists?('machine_models')
+      records = ids_where.call('machine_models', 'type', mt)
+      per['machine_models.type'] = records unless records.empty?
+      if records.any? && conn.table_exists?('model_documents')
+        docs = records.each_slice(500).flat_map do |slice|
+          conn.select_values("SELECT id FROM model_documents WHERE documentable_type = 'MachineModel' AND deleted_at IS NULL AND documentable_id IN (#{slice.join(',')})").map(&:to_i)
+        end
+        per['model_documents.documentable_id'] = docs unless docs.empty?
+      end
+    end
+    out[mt] = per
+  end
+end
+
+# Un-deletes captured rows that are soft-deleted now. Returns how many.
+lib[:restore_cascade] = lambda do |per|
+  conn = ActiveRecord::Base.connection
+  per.sum do |table_col, ids|
+    table = table_col.split('.', 2).first
+    ids.each_slice(500).sum do |slice|
+      conn.update("UPDATE #{conn.quote_table_name(table)} SET deleted_at = NULL WHERE deleted_at IS NOT NULL AND id IN (#{slice.map(&:to_i).join(',')})").to_i
+    end
+  end
+end
+
+lib[:take_snapshot] = lambda do |targets, label, cascade_types = []|
   records = targets.map do |t|
     rec = lib[:snapshot_find].call(t)
     entry = t.merge('id' => rec&.id)
@@ -986,7 +1036,9 @@ lib[:take_snapshot] = lambda do |targets, label|
     end
     entry
   end
-  { 'format' => 1, 'label' => label, 'taken_at' => Time.now.utc.iso8601, 'records' => records }
+  snap = { 'format' => 1, 'label' => label, 'taken_at' => Time.now.utc.iso8601, 'records' => records }
+  snap['cascade'] = lib[:capture_cascade].call(cascade_types) unless cascade_types.empty?
+  snap
 end
 
 lib[:snapshot_doc_type_name] = 'Snapshot'
@@ -1068,7 +1120,9 @@ end
 #      documents, and store the results record
 # Inside a button hook the record is saved by Fluxx afterwards; a pasted
 # test script passes save_now = true.
-lib[:run_with_snapshots] = lambda do |deploy_model, title, results_field, targets, save_now, work|
+# cascade_types: model types whose records the snapshot also lists (see
+# capture_cascade), for actions that soft-delete models
+lib[:run_with_snapshots] = lambda do |deploy_model, title, results_field, targets, save_now, work, cascade_types = []|
   log = Hash.new { |h, k| h[k] = [] }
   extra = {}
   before_value = nil
@@ -1078,7 +1132,7 @@ lib[:run_with_snapshots] = lambda do |deploy_model, title, results_field, target
     end
     lib[:require_ruby_access].call(deploy_model)
     ref = lib[:repo_ref].call(deploy_model)
-    before_value = lib[:save_snapshot].call(deploy_model, lib[:take_snapshot].call(targets, "before #{title}"), ref)
+    before_value = lib[:save_snapshot].call(deploy_model, lib[:take_snapshot].call(targets, "before #{title}", cascade_types), ref)
     extra = work.call(log) || {}
   rescue => e
     at = Array(e.backtrace).find { |b| b.include?('eval') } || Array(e.backtrace).first

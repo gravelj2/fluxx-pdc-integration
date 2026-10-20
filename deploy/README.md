@@ -6,7 +6,7 @@ actions, and each action's results show on the form. The code reads what "correc
 from this public repo, so nothing has to be copied by hand once the deploy model exists.
 
 The deploy model stays in place after install. To remove PDC completely, click
-**Uninstall**, delete what it lists for deleting by hand, then delete the deploy model.
+**Uninstall**, review what it lists, then delete the deploy model.
 
 ## What's here
 
@@ -62,7 +62,7 @@ The deploy model stays in place after install. To remove PDC completely, click
    |---|---|
    | **Validate** | Read-only. Compares this instance with the repo at `repo_ref`, so it previews what Install would change. |
    | **Install** | Installs and updates. Installs what's missing, restores what was soft-deleted (same id, so saved answers keep working), and overwrites anything PDC owns that differs from the repo. To move to another release, change `repo_ref` and click Install. Never removes anything: methods, states or buttons PDC didn't ship belong to whoever built them. |
-   | **Uninstall** | Removes what PDC owns (soft-deleted, so Restore Previous can bring it back) and lists anything it isn't sure about, the PDC copies of grant forms, and the PDC models themselves, for someone to review and delete by hand. |
+   | **Uninstall** | Removes what PDC owns, soft-deleting it as Fluxx does: PDC's fields, methods, states and buttons, its elements on forms and its block in the `granted` hook, and then the three PDC models with their themes, workflows and forms. Fluxx removes a model's records and other settings with it. Lists anything it isn't sure about and the PDC copies of grant forms for review. Restore Previous brings all of it back, records included. |
    | **Restore Previous** | Puts every PDC component back the way it was before the last Install, Uninstall or Restore. Clicking it twice undoes the restore. |
    | **Refresh Lists** | Reloads the role, profile and theme dropdowns. |
    | **Update Installer** | Updates the deploy model itself from the repo. |
