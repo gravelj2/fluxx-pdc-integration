@@ -47,13 +47,16 @@ The deploy model stays in place after install. To remove PDC completely, click
 1. Open the deploy record that setup created. `repo_url`/`repo_ref` should be filled in
    (if they're blank, enter them; the installer also remembers them in a `PDC Repo
    Settings` method) and the dropdowns loaded; Refresh Lists reloads the dropdowns later.
-2. Make the instance-specific choices. Names differ per org, so nothing is guessed:
-   - **Installer Role** (required): who may use the deploy model's buttons
-   - **PDC Event Role**: the role that may click the PDC Integration Map's buttons (TRN: Admin)
-   - **PDC Grantee Profile**: grantees, who view and update their own PDC Consent records;
-     its dashboard's first page also gets the OAuth callback (TRN: Grantee)
-   - **PDC Staff Profile**: staff allowed to edit the PDC fields the Consent form
-     restricts (TRN: Employee with Permissions Plus)
+2. Make the instance-specific choices. Names differ per org, so nothing is guessed, and
+   each can hold several:
+   - **Installer Role** (required): roles that may use the deploy model's buttons
+   - **PDC Event Role**: roles that may click the PDC Integration Map's buttons; Install
+     keeps those buttons' roles exactly in line with this list (TRN: Admin)
+   - **PDC Grantee Profile**: grantee profiles that view and update their own PDC Consent
+     records; each gets the Consent permissions, and the first dashboard page of each
+     gets the OAuth callback (TRN: Grantee)
+   - **PDC Staff Profile**: staff profiles allowed to see and edit the parts of the
+     Consent form that are restricted (TRN: Employee with Permissions Plus)
    - **Grant Request Themes** / **Grant Request Read-only Themes**: which grant themes
      show grantees the PDC component, interactive or read-only
 3. Click a button:

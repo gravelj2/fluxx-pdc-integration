@@ -382,14 +382,20 @@ lib[:placement_plan] = lambda do |deploy_model, scope|
     forms.each { |st| add.call(st, rules['readonly'] || [], "read-only theme #{th.name}", true) }
   end
   (readonly & interactive).each { |th| notes << "theme #{th.name} is in both theme lists; it gets the interactive set" }
-  profile = lib[:selected_profile].call(deploy_model, :pdc_grantee_profile)
-  if profile.nil?
-    notes << 'no PDC Grantee Profile chosen, so the OAuth callback page has no home'
-  elsif (gt = lib[:dashboard_template_stencil].call(profile))
-    add.call(gt, rules['dashboard'] || [], "#{profile.name} dashboard")
-  else
-    notes << "#{profile.name}'s dashboard has no GenericTemplate card"
+  # The OAuth callback goes on the first dashboard page of every chosen grantee
+  # profile (once per page, if several profiles share a dashboard)
+  profiles = lib[:selected_profiles].call(deploy_model, :pdc_grantee_profile)
+  notes << 'no PDC Grantee Profile chosen, so the OAuth callback page has no home' if profiles.empty?
+  pages = {}
+  profiles.each do |profile|
+    gt = lib[:dashboard_template_stencil].call(profile)
+    if gt.nil?
+      notes << "#{profile.name}'s dashboard has no GenericTemplate card"
+    else
+      (pages[gt.id] ||= [gt, []])[1] << profile.name
+    end
   end
+  pages.each_value { |gt, names| add.call(gt, rules['dashboard'] || [], "#{names.join(', ')} dashboard") }
   { 'forms' => plan, 'notes' => notes }
 end
 
@@ -645,26 +651,24 @@ lib[:selected_values] = lambda do |deploy_model, attr|
   end.compact.uniq
 end
 
-lib[:selected_role] = lambda do |deploy_model, attr = :pdc_event_role|
-  v = lib[:selected_values].call(deploy_model, attr).first
-  v && (Role.where(id: v.to_i, deleted_at: nil).first || Role.where(name: v, deleted_at: nil).first)
+# Every Role / UserProfile chosen in one of the deploy model's multi-select
+# fields (Installer Role, PDC Event Role, PDC Grantee Profile, PDC Staff
+# Profile), in the order chosen
+lib[:selected_roles] = lambda do |deploy_model, attr = :pdc_event_role|
+  lib[:selected_values].call(deploy_model, attr).map do |v|
+    Role.where(id: v.to_i, deleted_at: nil).first || Role.where(name: v, deleted_at: nil).first
+  end.compact.uniq
 end
 
-lib[:selected_role_name] = lambda do |deploy_model|
-  role = lib[:selected_role].call(deploy_model)
-  role ? role.name : lib[:selected_values].call(deploy_model, :pdc_event_role).first
+lib[:selected_profiles] = lambda do |deploy_model, attr|
+  live = UserProfile.column_names.include?('deleted_at') ? UserProfile.where(deleted_at: nil) : UserProfile.all
+  lib[:selected_values].call(deploy_model, attr).map do |v|
+    live.where(id: v.to_i).first || live.where(name: v).first
+  end.compact.uniq
 end
 
-lib[:selected_profile] = lambda do |deploy_model, attr|
-  v = lib[:selected_values].call(deploy_model, attr).first
-  v && (UserProfile.find_by(id: v.to_i) || UserProfile.find_by(name: v))
-end
-
-# The deploy model's dropdown choice for a UserProfile, as a profile name.
-lib[:selected_profile_name] = lambda do |deploy_model, attr|
-  p = lib[:selected_profile].call(deploy_model, attr)
-  p ? p.name : lib[:selected_values].call(deploy_model, attr).first
-end
+lib[:selected_role] = lambda { |deploy_model, attr = :pdc_event_role| lib[:selected_roles].call(deploy_model, attr).first }
+lib[:selected_profile] = lambda { |deploy_model, attr| lib[:selected_profiles].call(deploy_model, attr).first }
 
 lib[:selected_themes] = lambda do |deploy_model, attr|
   lib[:selected_values].call(deploy_model, attr).map { |v| ModelTheme.where(id: v.to_i, deleted_at: nil).first }.compact
@@ -677,9 +681,9 @@ end
 lib[:validate] = lambda do |manifest, live, deploy_model|
   rows = []
   row = lambda { |kind, key, status, detail = nil| rows << { 'kind' => kind, 'key' => key, 'status' => status, 'detail' => detail }.compact }
-  wanted_role = lib[:selected_role_name].call(deploy_model)
-  wanted_grantee = lib[:selected_profile_name].call(deploy_model, :pdc_grantee_profile)
-  wanted_staff = lib[:selected_profile_name].call(deploy_model, :pdc_staff_profile)
+  wanted_roles = lib[:selected_roles].call(deploy_model, :pdc_event_role).map(&:name).sort
+  wanted_grantees = lib[:selected_profiles].call(deploy_model, :pdc_grantee_profile).map(&:name).sort
+  wanted_staff = lib[:selected_profiles].call(deploy_model, :pdc_staff_profile).map(&:name).sort
 
   %w[models permissions attributes methods themes states workflows events stencils shared_slices].each do |kind|
     by_key = {}
@@ -708,18 +712,19 @@ lib[:validate] = lambda do |manifest, live, deploy_model|
       end
       diffs.empty? ? row.call(kind, key, 'MATCH') : row.call(kind, key, 'DIFFERS', diffs)
 
-      if kind == 'permissions' && wanted_grantee && !Array(l['profiles']).include?(wanted_grantee)
-        row.call(kind, key, 'PROFILE_DIFFERS', ["expected #{wanted_grantee}, found #{Array(l['profiles']).join(', ')}"])
+      missing_grantees = wanted_grantees - Array(l['profiles'])
+      if kind == 'permissions' && missing_grantees.any?
+        row.call(kind, key, 'PROFILE_DIFFERS', ["missing for #{missing_grantees.join(', ')}; held by #{Array(l['profiles']).join(', ')}"])
       end
-      if kind == 'stencils' && wanted_staff && Array(l['profiles']).any? && Array(l['profiles']) != [wanted_staff]
-        row.call(kind, key, 'PROFILE_DIFFERS', ["restricted to #{Array(l['profiles']).join(', ')}, expected #{wanted_staff}"])
+      if kind == 'stencils' && wanted_staff.any? && Array(l['profiles']).any? && Array(l['profiles']).sort != wanted_staff
+        row.call(kind, key, 'PROFILE_DIFFERS', ["restricted to #{Array(l['profiles']).join(', ')}, expected #{wanted_staff.join(', ')}"])
       end
       if kind == 'events'
         roles = Array(l['roles'])
         if roles.empty?
-          row.call(kind, key, 'MISSING_ROLE', wanted_role ? ["expected #{wanted_role}"] : nil)
-        elsif wanted_role && !roles.include?(wanted_role)
-          row.call(kind, key, 'ROLE_DIFFERS', ["expected #{wanted_role}, found #{roles.join(', ')}"])
+          row.call(kind, key, 'MISSING_ROLE', wanted_roles.any? ? ["expected #{wanted_roles.join(', ')}"] : nil)
+        elsif wanted_roles.any? && roles.uniq.sort != wanted_roles
+          row.call(kind, key, 'ROLE_DIFFERS', ["expected #{wanted_roles.join(', ')}, found #{roles.join(', ')}"])
         end
       end
     end

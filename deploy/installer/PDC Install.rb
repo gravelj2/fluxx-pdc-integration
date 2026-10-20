@@ -202,10 +202,10 @@ install = lambda do |log|
 
   # The models' own forms, from the repo (after the fields and options above,
   # which they refer to). Two things in the repo copy are TRN's: profile
-  # restrictions become the PDC Staff Profile chosen on this record, and
+  # restrictions become the PDC Staff Profiles chosen on this record, and
   # dropdown option ids in show/hide conditions become this instance's ids for
   # the same options.
-  staff = lib[:selected_profile].call(model, :pdc_staff_profile)
+  staff_ids = lib[:selected_profiles].call(model, :pdc_staff_profile).map { |pr| pr.id.to_s }
   profile_keys = scope['stencil_profile_keys'] || []
   volatile = scope['stencil_volatile_keys'] || []
   restricted = false
@@ -216,7 +216,7 @@ install = lambda do |log|
       node.each_with_object({}) do |(k, v), h|
         if profile_keys.include?(k) && Array(v).reject { |x| x.to_s.empty? }.any?
           restricted = true
-          h[k] = staff ? [staff.id.to_s] : v
+          h[k] = staff_ids.any? ? staff_ids : v
         else
           h[k] = map_profiles.call(v)
         end
@@ -247,7 +247,7 @@ install = lambda do |log|
       next
     end
     doc = map_profiles.call(doc)
-    if restricted && staff.nil?
+    if restricted && staff_ids.empty?
       log['note'] << "form #{sp['key']} not written: choose the PDC Staff Profile (it restricts part of the form)"
       next
     end
@@ -267,11 +267,17 @@ install = lambda do |log|
       log['ok'] << "form #{sp['key']}"
     end
   end
-  # Consent permissions for the PDC Grantee Profile
-  grantee = lib[:selected_profile].call(model, :pdc_grantee_profile)
-  if grantee.nil?
-    log['note'] << 'no PDC Grantee Profile chosen, so grantees get no Consent permissions' if Array(bundle['permissions']).any?
-  else
+  # Consent permissions for each PDC Grantee Profile. Profiles not chosen keep
+  # whatever they have; ones holding these permissions are listed.
+  grantees = lib[:selected_profiles].call(model, :pdc_grantee_profile)
+  log['note'] << 'no PDC Grantee Profile chosen, so grantees get no Consent permissions' if grantees.empty? && Array(bundle['permissions']).any?
+  Array(bundle['permissions']).each do |pm|
+    UserProfileRule.where(model_type: pm['model_type'], permission_name: pm['permission_name'], allowed: true)
+                   .where.not(user_profile_id: grantees.map(&:id)).each do |other|
+      log['note'] << "#{pm['key']} is also held by profile #{(UserProfile.find_by(id: other.user_profile_id)&.name) || other.user_profile_id} (not chosen; left as is)"
+    end
+  end
+  grantees.each do |grantee|
     Array(bundle['permissions']).each do |pm|
       key = "#{pm['key']} for #{grantee.name}"
       rule = UserProfileRule.where(model_type: pm['model_type'], permission_name: pm['permission_name'], user_profile_id: grantee.id).first
@@ -328,16 +334,20 @@ install = lambda do |log|
     log[how] << s['key']
   end
 
-  # Buttons
+  # Buttons. Their roles are exactly the PDC Event Roles chosen here; with none
+  # chosen, a button keeps its roles, and a button without any gets the role
+  # the workflow's other buttons use most.
   state_id = lambda { |mt, name| MachineState.where(model_type: mt, name: name, deleted_at: nil).first&.id }
-  pick_role = lambda do |wf|
-    named = lib[:selected_role_name].call(model)
-    role = named && Role.where(name: named, deleted_at: nil).first
-    role || begin
-      ids = MachineEventRole.where(machine_event_id: MachineEvent.where(machine_workflow_id: wf.id, deleted_at: nil).pluck(:id)).pluck(:role_id)
-      common = ids.group_by { |i| i }.max_by { |_, v| v.size }
-      common && Role.find_by(id: common.first)
-    end
+  chosen_roles = lib[:selected_roles].call(model, :pdc_event_role)
+  pick_roles = lambda do |wf|
+    next chosen_roles.map(&:id).sort if chosen_roles.any?
+    ids = MachineEventRole.where(machine_event_id: MachineEvent.where(machine_workflow_id: wf.id, deleted_at: nil).pluck(:id)).pluck(:role_id)
+    common = ids.group_by { |i| i }.max_by { |_, v| v.size }
+    common ? [common.first] : []
+  end
+  roles_wrong = lambda do |ev, wf|
+    have = MachineEventRole.where(machine_event_id: ev.id).pluck(:role_id).uniq.sort
+    chosen_roles.any? ? have != chosen_roles.map(&:id).sort : have.empty?
   end
   b['events'].each do |e|
     theme = ModelTheme.where(model_type: e['model_type'], name: e['theme'], deleted_at: nil).first
@@ -361,8 +371,9 @@ install = lambda do |log|
         MachineEventFromState.where(machine_event_id: ev.id).destroy_all
         want_from.each { |id, order| MachineEventFromState.create!(machine_event_id: ev.id, from_state_id: id, button_order: order) }
       end
-      if MachineEventRole.where(machine_event_id: ev.id).empty? && (role = pick_role.call(wf))
-        MachineEventRole.create!(machine_event_id: ev.id, role_id: role.id)
+      if roles_wrong.call(ev, wf) && (want_roles = pick_roles.call(wf)).any?
+        MachineEventRole.where(machine_event_id: ev.id).destroy_all
+        want_roles.each { |rid| MachineEventRole.create!(machine_event_id: ev.id, role_id: rid) }
       end
     end
     rel = MachineEvent.where(machine_workflow_id: wf.id, button_name: e['button_name'])
@@ -370,14 +381,14 @@ install = lambda do |log|
       have = MachineEventFromState.where(machine_event_id: live.id).map { |f| [f.from_state_id, f.button_order] }.sort
       extra = []
       extra << 'from_states' if have != want_from
-      if MachineEventRole.where(machine_event_id: live.id).empty?
-        pick_role.call(wf) ? extra << 'role' : log['button has no role (choose PDC Event Role, then Install again)'] << e['key']
+      if roles_wrong.call(live, wf)
+        pick_roles.call(wf).any? ? extra << 'roles' : log['button has no role (choose PDC Event Role, then Install again)'] << e['key']
       end
       reconcile.call(e['key'], live, want, extra, -> { set_links.call(live) })
       next
     end
     # A button nobody can click isn't created; choose the role first.
-    if pick_role.call(wf).nil?
+    if pick_roles.call(wf).empty?
       log['button not created: no role (choose PDC Event Role, then Install again)'] << e['key']
       next
     end
@@ -527,10 +538,11 @@ copies = plan['forms'].select { |f| f['copy'] }.map do |f|
   { 'table' => 'Stencil', 'key' => "PDC copy of stencil #{f['stencil_id']}",
     'find' => { 'model_type' => f['model_type'], 'model_theme_id' => f['copy']['model_theme_id'], 'name' => f['copy']['name'] } }
 end
-grantee_for_snapshot = lib[:selected_profile].call(model, :pdc_grantee_profile)
-rules = grantee_for_snapshot ? Array(bundle['permissions']).map do |pm|
-  { 'table' => 'UserProfileRule', 'key' => "#{pm['key']} for #{grantee_for_snapshot.name}",
-    'find' => { 'model_type' => pm['model_type'], 'permission_name' => pm['permission_name'], 'user_profile_id' => grantee_for_snapshot.id } }
-end : []
+rules = lib[:selected_profiles].call(model, :pdc_grantee_profile).flat_map do |gp|
+  Array(bundle['permissions']).map do |pm|
+    { 'table' => 'UserProfileRule', 'key' => "#{pm['key']} for #{gp.name}",
+      'find' => { 'model_type' => pm['model_type'], 'permission_name' => pm['permission_name'], 'user_profile_id' => gp.id } }
+  end
+end
 targets = lib[:snapshot_targets].call(bundle, plan['forms'].map { |f| f['stencil_id'] }, copies + rules)
 lib[:run_with_snapshots].call(model, 'Install', 'install_results', targets, save_now, install)
