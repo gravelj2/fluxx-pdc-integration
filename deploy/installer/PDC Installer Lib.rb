@@ -269,6 +269,13 @@ lib[:form_types] = lambda do |stencil|
   ft.is_a?(Array) ? ft.map(&:to_s) : ft.to_s.split(/[,\s]+/)
 end
 
+# The profiles an element is restricted to (its visibility "user_profile"),
+# as sorted id strings; [] means no restriction.
+lib[:profiles_of] = lambda do |node|
+  vis = node.is_a?(Hash) && node['visibility'].is_a?(Hash) ? node['visibility'] : {}
+  Array(vis['user_profile']).map(&:to_s).reject(&:empty?).uniq.sort
+end
+
 # Finds every PDC element in host stencils: first by its PDC:ELEMENT marker,
 # otherwise by the scope's include/exclude fingerprints. Returns
 # { element_id => [location, ...] }.
@@ -283,6 +290,7 @@ lib[:locate_elements] = lambda do |scope, include_text = false|
 
   found = Hash.new { |h, k| h[k] = [] }
   Stencil.where(model_type: hosts, deleted_at: nil).where(like).each do |st|
+    doc = (JSON.parse(st['json'].to_s) rescue {})
     lib[:stencil_elements].call(st['json']).each do |entry|
       text = lib[:element_text].call(entry['element'])
       next if text.nil?
@@ -312,8 +320,16 @@ lib[:locate_elements] = lambda do |scope, include_text = false|
           'parent_groups' => entry['parents'],
           'sha256' => lib[:sha].call(text),
           'sha256_decoded' => lib[:sha].call(decoded),
-          'config_problems' => lib[:element_config_problems].call(entry['element'], scope['element_required_config'])
+          'config_problems' => lib[:element_config_problems].call(entry['element'], scope['element_required_config']),
+          'profiles' => lib[:profiles_of].call(entry['element'])
         }.merge(include_text ? { 'text' => text } : {})
+        if entry['trail'].size > 1
+          parent = entry['trail'][0..-2].inject(doc) { |n, i| n.is_a?(Hash) ? Array(n['elements'])[i] : nil }
+          if parent.is_a?(Hash) && parent['element_type'] == 'group'
+            found[id].last['group_trail'] = entry['trail'][0..-2]
+            found[id].last['group_profiles'] = lib[:profiles_of].call(parent)
+          end
+        end
       end
     end
   end
@@ -391,6 +407,7 @@ lib[:new_element] = lambda do |kind, model_type, opts|
   vis = { 'visible_show' => true, 'visible_form' => true, 'advanced_filter' => '1',
           'advanced_query' => JSON.generate('group_type' => 'and', 'conditions' => [], 'relationship_filter_model_type' => model_type),
           'advanced_sort' => '[]' }
+  vis['user_profile'] = opts['profiles'] if opts['profiles'].is_a?(Array) && opts['profiles'].any?
   base = { 'visibility' => vis, 'styling' => { 'alignment' => 'left' }, 'uid' => SecureRandom.uuid }
   case kind
   when 'text'
@@ -398,7 +415,9 @@ lib[:new_element] = lambda do |kind, model_type, opts|
   when 'field'
     if opts['template'].is_a?(Hash)
       # A copy of how the field sits on a known-good form, with a fresh uid
-      JSON.parse(JSON.generate(opts['template'])).merge('uid' => SecureRandom.uuid)
+      el = JSON.parse(JSON.generate(opts['template'])).merge('uid' => SecureRandom.uuid)
+      el['visibility'] = (el['visibility'] || {}).merge('user_profile' => opts['profiles']) if opts['profiles'].is_a?(Array) && opts['profiles'].any?
+      el
     else
       base.merge('element_type' => 'attribute', 'name' => opts['name'], 'label' => opts['label'],
                  'config' => { 'label' => opts['label'], 'required' => '0' })
@@ -424,7 +443,8 @@ lib[:stencil_fields] = lambda do |scope, located, include_bodies|
         e['element']['element_type'] == 'attribute' && e['element']['name'] == req['attribute']
       end
       entry = { 'key' => "#{req['model_type']}.#{req['attribute']} @ stencil #{st.id} (#{st.name.to_s.strip})",
-                'attribute' => req['attribute'], 'stencil_id' => st.id, 'present' => !hit.nil? }
+                'attribute' => req['attribute'], 'stencil_id' => st.id, 'present' => !hit.nil?,
+                'enabled' => st.enabled ? true : false, 'profiles' => hit ? lib[:profiles_of].call(hit['element']) : [] }
       entry['trail'] = hit['trail'] if hit
       entry['element'] = hit['element'] if hit && include_bodies
       out << entry
@@ -720,12 +740,33 @@ lib[:validate] = lambda do |manifest, live, deploy_model|
     by_key.each_key { |key| row.call(kind, key, 'EXTRA') unless seen[key] }
   end
 
+  # Who should see the PDC pieces on grant forms and the dashboard page: the
+  # PDC Grantee Profiles chosen on the deploy record (checked on active forms)
+  grantee_ids = lib[:selected_profiles].call(deploy_model, :pdc_grantee_profile).map { |pr| pr.id.to_s }.sort
+  profile_names = lambda { |ids| ids.empty? ? 'everyone' : ids.map { |i| UserProfile.find_by(id: i.to_i)&.name || i }.join(', ') }
+
   # Required native fields on the stencils holding PDC elements
   Array(live['stencil_fields']).each do |f|
     row.call('stencil_fields', f['key'], f['present'] ? 'MATCH' : 'MISSING',
              f['present'] ? nil : ["#{f['attribute']} is not on this form; the PDC code reads it"])
+    if f['present'] && f['enabled'] && grantee_ids.any? && Array(f['profiles']) != grantee_ids
+      row.call('stencil_fields', f['key'], 'PROFILE_DIFFERS', ["shown to #{profile_names.call(Array(f['profiles']))}, expected #{profile_names.call(grantee_ids)}"])
+    end
   end
 
+  # The deploy model's own buttons: the Installer Roles chosen on it
+  installer_roles = lib[:selected_roles].call(deploy_model, :installer_role).map(&:name).sort
+  dtheme = ModelTheme.where(model_type: deploy_model.class.name, deleted_at: nil).order(:id).first
+  dwf = dtheme && MachineWorkflow.where(model_theme_id: dtheme.id, deleted_at: nil).first
+  if dwf && installer_roles.any?
+    MachineEvent.where(machine_workflow_id: dwf.id, deleted_at: nil).each do |ev|
+      have = Role.where(id: MachineEventRole.where(machine_event_id: ev.id).select(:role_id)).pluck(:name).sort
+      row.call('installer_buttons', "#{deploy_model.class.name}>#{ev.button_name}", have == installer_roles ? 'MATCH' : 'ROLE_DIFFERS',
+               have == installer_roles ? nil : ["expected #{installer_roles.join(', ')}, found #{have.empty? ? 'none' : have.join(', ')} (Update Installer fixes this)"])
+    end
+  end
+
+  reported_groups = {}
   live_elements = {}
   Array(live['stencil_elements']).each { |l| live_elements[l['key']] = l }
   Array(manifest['stencil_elements']).each do |m|
@@ -741,6 +782,19 @@ lib[:validate] = lambda do |manifest, live, deploy_model|
         row.call('stencil_elements', where, 'CONFIG_DIFFERS', problems) if problems.any?
       end
       groups = here.map { |loc| loc['parent_groups'] }.uniq
+      if grantee_ids.any?
+        here.select { |loc| loc['enabled'] }.each do |loc|
+          if Array(loc['profiles']) != grantee_ids
+            row.call('stencil_elements', where, 'PROFILE_DIFFERS', ["element shown to #{profile_names.call(Array(loc['profiles']))}, expected #{profile_names.call(grantee_ids)}"])
+          end
+          gkey = [loc['stencil_id'], loc['group_trail']]
+          if loc['group_trail'] && !reported_groups[gkey] && Array(loc['group_profiles']) != grantee_ids
+            reported_groups[gkey] = true
+            row.call('stencil_elements', "PDC group @ stencil #{loc['stencil_id']} (#{loc['stencil_name'].to_s.strip})", 'PROFILE_DIFFERS',
+                     ["group shown to #{profile_names.call(Array(loc['group_profiles']))}, expected #{profile_names.call(grantee_ids)}"])
+          end
+        end
+      end
       if here.any? { |loc| Array(loc['also_matches']).any? }
         row.call('stencil_elements', where, 'AMBIGUOUS', here.map { |loc| "trail #{loc['trail'].inspect} also looks like #{loc['also_matches'].join(', ')}" })
       elsif here.size > 1
