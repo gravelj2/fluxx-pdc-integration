@@ -12,7 +12,15 @@
 # save must not run this block again, so it runs at most once per record per
 # request, and only while the buttons still lack a role.
 
-already = model.instance_variable_get(:@pdc_after_create_ran)
+# Only one deploy record: if Before New's removal of a second record didn't
+# stop the save, this record is removed here and nothing else runs.
+# (Temporary records from cancelled New forms don't count.)
+others = model.class.where(deleted_at: nil).where.not(id: model.id)
+others = others.where(is_temp_precreate: [false, nil]) if model.class.column_names.include?('is_temp_precreate')
+second_record = others.exists?
+model.delete if second_record
+
+already = second_record || model.instance_variable_get(:@pdc_after_create_ran)
 needs_buttons = lambda do
   theme = ModelTheme.where(model_type: model.class.name, deleted_at: nil).order(:id).first
   wf = theme && MachineWorkflow.where(model_theme_id: theme.id, deleted_at: nil).first
