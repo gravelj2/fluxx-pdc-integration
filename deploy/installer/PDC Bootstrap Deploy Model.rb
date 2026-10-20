@@ -191,9 +191,10 @@ result =
       # Fluxx may have created its own starting state under another name; use it
       st ||= MachineState.where(model_type: mt, state_type: 'new', deleted_at: nil).order(:id).first if s['state_type'] == 'new'
       if st.nil?
-        st = MachineState.create!(model_type: mt, name: s['name'], description: s['description'],
-                                  state_type: s['state_type'], state_order: i + 1, allowed_roles: '[]',
-                                  unsafe_before_validation_enter: hook)
+        attrs = { model_type: mt, name: s['name'], description: s['description'], state_type: s['state_type'],
+                  state_order: i + 1, allowed_roles: '[]', unsafe_before_validation_enter: hook }
+        attrs[:external_description] = s['description'] if MachineState.column_names.include?('external_description')   # as the GUI sets it
+        st = MachineState.create!(attrs)
         log << "state #{s['name']}: created"
       elsif hook && !same.call(st.unsafe_before_validation_enter, hook)
         st.unsafe_before_validation_enter = hook
