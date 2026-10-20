@@ -13,8 +13,9 @@
 #   - PDC buttons, states, methods (including the secret ones) and fields
 #   - the PDC models themselves, as Fluxx removes a model: workflows, forms,
 #     themes, then the model. Fluxx's cleanup then soft-deletes everything
-#     else tied to each model, records included; the snapshot lists those
-#     rows first, so Restore Previous brings them back too
+#     else tied to each model, records included. Restore Previous brings back
+#     the configuration (the snapshot lists those settings first), not the
+#     records
 # Listed for review, never removed:
 #   - PDC-looking elements that were edited, are ambiguous, or have no marker
 #     and don't match the repo; groups that also hold other content
@@ -171,7 +172,8 @@ uninstall = lambda do |log|
   # 5. The PDC models themselves, as Fluxx removes a model: their workflows,
   # forms and themes, then the model. Fluxx's own cleanup then soft-deletes
   # the rest tied to each model, records included; the snapshot taken before
-  # this run lists those rows so Restore Previous can bring them back.
+  # this run lists the configuration rows so Restore Previous can bring them
+  # back (records are left to a separate recovery).
   ModelTheme.where(model_type: owned).each do |th|
     MachineWorkflow.where(model_theme_id: th.id, deleted_at: nil).each { |wf| soft_delete.call(wf, "workflow #{th.model_type}/#{th.name}") }
   end

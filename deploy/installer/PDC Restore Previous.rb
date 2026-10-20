@@ -220,13 +220,13 @@ restore = lambda do |log|
   warnings = []
   warnings << "The last action's after-snapshot couldn't be read (#{latest_error}), so changes made since then weren't checked" if latest.nil? && model.respond_to?(:current_configuration) && model.current_configuration.present?
   warnings << "There's no after-snapshot of the last action, so changes made since then weren't checked" if latest.nil? && !(model.respond_to?(:current_configuration) && model.current_configuration.present?)
-  # Rows Fluxx soft-deleted along with a model (records, their documents,
-  # labels, mappings): bring back the ones the snapshot saw live, for models
-  # that are back
+  # Configuration Fluxx soft-deleted along with a model (labels, mappings,
+  # fields pointing at it): bring back the rows the snapshot saw live, for
+  # models that are back. Records aren't restored here.
   (previous['cascade'] || {}).each do |mt, per|
     next unless MachineModelType.where(model_type: mt, deleted_at: nil).exists?
     n = lib[:restore_cascade].call(per)
-    log['restored records and settings removed with the model'] << "#{mt}: #{n} rows" if n > 0
+    log['restored settings removed with the model'] << "#{mt}: #{n} rows" if n > 0
   end
   { 'mode' => "back to #{previous['label']} (#{previous['taken_at']})", 'warnings' => warnings }
 end

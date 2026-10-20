@@ -971,10 +971,12 @@ lib[:event_links] = lambda do |ev|
     'roles' => MachineEventRole.where(machine_event_id: ev.id).pluck(:role_id).sort }
 end
 
-# Rows Fluxx soft-deletes along with a model (its records, their documents,
-# and every config row naming the model type, as MachineModelType's
-# handle_deletion_of_related_config does), so a restore can bring back exactly
-# the ones that were live: { model_type => { "table.column" => [ids] } }
+# Configuration rows Fluxx soft-deletes along with a model (every config row
+# naming the model type, as MachineModelType's handle_deletion_of_related_config
+# does: labels, relationship mappings, fields elsewhere that point at it...),
+# so a restore can bring back exactly the ones that were live:
+# { model_type => { "table.column" => [ids] } }. Records and their documents
+# are not included: Restore Previous only handles configuration.
 lib[:capture_cascade] = lambda do |model_types|
   conn = ActiveRecord::Base.connection
   rel_cols = (MachineModelType::MODEL_TYPE_RELATION_COLUMN_NAMES rescue ['model_type'])
@@ -994,16 +996,6 @@ lib[:capture_cascade] = lambda do |model_types|
       (rel_cols & cols).each do |col|
         ids = ids_where.call(t, col, mt)
         per["#{t}.#{col}"] = ids unless ids.empty?
-      end
-    end
-    if conn.table_exists?('machine_models')
-      records = ids_where.call('machine_models', 'type', mt)
-      per['machine_models.type'] = records unless records.empty?
-      if records.any? && conn.table_exists?('model_documents')
-        docs = records.each_slice(500).flat_map do |slice|
-          conn.select_values("SELECT id FROM model_documents WHERE documentable_type = 'MachineModel' AND deleted_at IS NULL AND documentable_id IN (#{slice.join(',')})").map(&:to_i)
-        end
-        per['model_documents.documentable_id'] = docs unless docs.empty?
       end
     end
     out[mt] = per
@@ -1120,8 +1112,8 @@ end
 #      documents, and store the results record
 # Inside a button hook the record is saved by Fluxx afterwards; a pasted
 # test script passes save_now = true.
-# cascade_types: model types whose records the snapshot also lists (see
-# capture_cascade), for actions that soft-delete models
+# cascade_types: model types whose related configuration rows the snapshot also
+# lists (see capture_cascade), for actions that soft-delete models
 lib[:run_with_snapshots] = lambda do |deploy_model, title, results_field, targets, save_now, work, cascade_types = []|
   log = Hash.new { |h, k| h[k] = [] }
   extra = {}
