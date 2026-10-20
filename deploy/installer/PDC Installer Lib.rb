@@ -1081,7 +1081,8 @@ lib[:run_with_snapshots] = lambda do |deploy_model, title, results_field, target
     before_value = lib[:save_snapshot].call(deploy_model, lib[:take_snapshot].call(targets, "before #{title}"), ref)
     extra = work.call(log) || {}
   rescue => e
-    extra['error'] = "#{e.class}: #{e.message}#{before_value ? ' (some changes may have been made; Restore Previous undoes them)' : ''}"
+    at = Array(e.backtrace).find { |b| b.include?('eval') } || Array(e.backtrace).first
+    extra['error'] = "#{e.class}: #{e.message} (at #{at})#{before_value ? ' (some changes may have been made; Restore Previous undoes them)' : ''}"
   end
   # Nothing changed: drop the two snapshot documents and keep the pointers, so
   # Restore Previous still goes back past the last real change.
