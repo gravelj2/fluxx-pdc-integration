@@ -363,7 +363,9 @@ lib[:placement_plan] = lambda do |deploy_model, scope|
     end.map { |req| req['attribute'] }
     entry = { 'stencil_id' => stencil.id, 'model_type' => stencil.model_type, 'where' => "stencil #{stencil.id} (#{stencil.name.to_s.strip}, #{why})",
               'elements' => missing, 'fields' => fields }
-    if copy && present.empty? && missing.any?
+    # A form that is already a PDC copy (e.g. after an Uninstall) is updated in
+    # place, never copied again
+    if copy && present.empty? && missing.any? && !stencil.name.to_s.strip.end_with?('(PDC)')
       entry['copy'] = { 'name' => lib[:pdc_copy_name].call(stencil.name), 'model_theme_id' => stencil.model_theme_id }
     end
     plan << entry
