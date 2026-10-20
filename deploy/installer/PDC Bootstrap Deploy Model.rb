@@ -344,14 +344,15 @@ result =
         next
       end
       begin
+        # Fluxx won't save a button without a role, so its roles and from-states
+        # are attached before the first save
         ActiveRecord::Base.transaction(requires_new: true) do
-          ev = MachineEvent.create!(machine_workflow_id: workflow.id, button_name: e['button_name'],
-                                    to_state_id: states.fetch(e['to_state']).id, is_validation_suppressed: true,
-                                    guard_strategy: 'none', filter: filter)
-          e['from_states'].each do |from|
-            MachineEventFromState.create!(machine_event_id: ev.id, from_state_id: states.fetch(from).id, button_order: i + 1)
-          end
-          roles.each { |rl| MachineEventRole.create!(machine_event_id: ev.id, role_id: rl.id) }
+          ev = MachineEvent.new(machine_workflow_id: workflow.id, button_name: e['button_name'],
+                                to_state_id: states.fetch(e['to_state']).id, is_validation_suppressed: true,
+                                guard_strategy: 'none', filter: filter)
+          ev.roles = roles   # Fluxx validates the roles list itself; the role links are created on save
+          e['from_states'].each { |from| ev.machine_event_from_states.build(from_state_id: states.fetch(from).id, button_order: i + 1) }
+          ev.save!
         end
         log << "button #{e['button_name']}: created"
       rescue => err

@@ -165,7 +165,12 @@ restore = lambda do |log|
                                  MachineState.where(model_type: r['find']['model_type'], name: l['to_state'], deleted_at: nil).first&.id
       end
       rec = klass.new(attrs)
-      rec.save!
+      if r['table'] == 'MachineEvent'
+        # Fluxx won't save a button without a role; links are put right below
+        lib[:save_event].call(rec, Array((r['links'] || {})['roles']), [])
+      else
+        rec.save!
+      end
       changed = ['recreated']
       log['recreated'] << key
     else
