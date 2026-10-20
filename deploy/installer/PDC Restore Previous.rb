@@ -228,6 +228,15 @@ restore = lambda do |log|
   warnings = []
   warnings << "The last action's after-snapshot couldn't be read (#{latest_error}), so changes made since then weren't checked" if latest.nil? && model.respond_to?(:current_configuration) && model.current_configuration.present?
   warnings << "There's no after-snapshot of the last action, so changes made since then weren't checked" if latest.nil? && !(model.respond_to?(:current_configuration) && model.current_configuration.present?)
+  # Forms of the PDC models created since (e.g. the new form Install makes)
+  (previous['model_forms'] || {}).each do |mt, ids|
+    next unless MachineModelType.where(model_type: mt, deleted_at: nil).exists?
+    Stencil.where(model_type: mt, deleted_at: nil).where.not(id: ids).each do |f|
+      next unless lib[:form_types].call(f).include?('form')
+      remove.call(f)
+      log['removed (was not there before)'] << "form #{mt} #{f.name.to_s.strip} (stencil #{f.id})"
+    end
+  end
   # Configuration Fluxx soft-deleted along with a model (labels, mappings,
   # fields pointing at it): bring back the rows the snapshot saw live, for
   # models that are back. Records aren't restored here.
