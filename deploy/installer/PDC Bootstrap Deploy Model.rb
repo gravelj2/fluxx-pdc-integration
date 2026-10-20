@@ -379,9 +379,11 @@ record =
       'groups' => [{ 'label' => 'log', 'tone' => 'info', 'items' => log.map { |l| { 'key' => l.to_s } } }] }
   end
 model.installer_results = JSON.generate(record) if model.respond_to?(:installer_results=)
-# From After Create the record is already saved, so save the results, once:
-# the flag stops this save from ever leading to another one
-if handoff['phase'] == 'after_create' && model.persisted? && !model.instance_variable_get(:@pdc_results_saved)
+# Save the results and starting state, once (the flag stops this save from
+# leading to another). From After Create the record is saved already; from
+# Before New it's the record Fluxx made for the New form, which Fluxx would
+# otherwise save only with the fields that are on the form.
+if %w[after_create before_new].include?(handoff['phase']) && model.persisted? && !model.instance_variable_get(:@pdc_results_saved)
   model.instance_variable_set(:@pdc_results_saved, true)
   begin
     model.save!
