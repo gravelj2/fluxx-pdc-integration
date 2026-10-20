@@ -142,13 +142,16 @@ result =
     # type must never be required (a required type blocks saving the record).
     dt_name = spec['snapshot_document_type']
     dt = ModelDocumentType.where(model_type: mt, name: dt_name).where('retired IS NULL OR retired = ?', false).first
+    dt_cols = ModelDocumentType.column_names
     if dt.nil?
-      ModelDocumentType.create!(model_type: mt, name: dt_name, doc_label: 'default', permission_name: 'read_only', required: false,
-                                model_theme_id: ModelTheme.where(model_type: mt, deleted_at: nil).order(:id).first&.id)
+      attrs = { model_type: mt, name: dt_name, doc_label: 'default', permission_name: 'read_only',
+                model_theme_id: ModelTheme.where(model_type: mt, deleted_at: nil).order(:id).first&.id }
+      attrs[:required] = false if dt_cols.include?('required')
+      ModelDocumentType.create!(attrs)
       log << "document type #{dt_name}: created"
-    elsif dt.required || dt.required_state.present?
-      dt.required = false
-      dt.required_state = nil if dt.has_attribute?(:required_state)
+    elsif (dt_cols.include?('required') && dt.required) || (dt_cols.include?('required_state') && dt.required_state.present?)
+      dt.required = false if dt_cols.include?('required')
+      dt.required_state = nil if dt_cols.include?('required_state')
       dt.save!
       log << "document type #{dt_name}: updated"
     else
