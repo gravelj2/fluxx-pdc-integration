@@ -117,8 +117,18 @@ result =
 
     # 1. Attributes
     spec['attributes'].each do |a|
-      if ModelAttribute.where(model_type: mt, name: a['name'], deleted_at: nil).exists?
-        log << "attribute #{a['name']}: exists"
+      existing = ModelAttribute.where(model_type: mt, name: a['name'], deleted_at: nil).first
+      if existing
+        # Keep the field's type and single/multiple choice in line with the repo
+        want_multi = a['multi_allowed'] ? true : false
+        if (existing.multi_allowed ? true : false) != want_multi || existing.attribute_type != a['attribute_type']
+          existing.multi_allowed = want_multi
+          existing.attribute_type = a['attribute_type']
+          existing.save!
+          log << "attribute #{a['name']}: updated"
+        else
+          log << "attribute #{a['name']}: exists"
+        end
       else
         ModelAttribute.create!(model_type: mt, name: a['name'], description: a['description'],
                                attribute_type: a['attribute_type'], multi_allowed: a['multi_allowed'] ? true : false)
@@ -128,13 +138,21 @@ result =
 
     # Document type for configuration snapshots (Install, Uninstall and
     # Restore Previous save each snapshot as a text document of this type)
+    # The installer writes these documents itself; nobody uploads one, so the
+    # type must never be required (a required type blocks saving the record).
     dt_name = spec['snapshot_document_type']
-    if ModelDocumentType.where(model_type: mt, name: dt_name).where('retired IS NULL OR retired = ?', false).exists?
-      log << "document type #{dt_name}: exists"
-    else
-      ModelDocumentType.create!(model_type: mt, name: dt_name, doc_label: 'default', permission_name: 'read_only',
+    dt = ModelDocumentType.where(model_type: mt, name: dt_name).where('retired IS NULL OR retired = ?', false).first
+    if dt.nil?
+      ModelDocumentType.create!(model_type: mt, name: dt_name, doc_label: 'default', permission_name: 'read_only', required: false,
                                 model_theme_id: ModelTheme.where(model_type: mt, deleted_at: nil).order(:id).first&.id)
       log << "document type #{dt_name}: created"
+    elsif dt.required || dt.required_state.present?
+      dt.required = false
+      dt.required_state = nil if dt.has_attribute?(:required_state)
+      dt.save!
+      log << "document type #{dt_name}: updated"
+    else
+      log << "document type #{dt_name}: exists"
     end
 
     # 2. Installer methods (bodies fetched from the repo)
@@ -282,9 +300,13 @@ result =
     # form opens nothing is chosen yet, so the buttons are created by After
     # Create once the record is saved. Without a choice, the role the existing
     # buttons already use is kept.
-    chosen = (model.dyn_invoke_for(:"PDC Installer Lib")[:selected_role].call(model, spec['button_role_field'].to_sym) rescue nil)
-    role = chosen || Role.where(id: MachineEventRole.where(machine_event_id: MachineEvent.where(machine_workflow_id: workflow.id, deleted_at: nil).select(:id)).select(:role_id)).first
-    if role.nil?
+    # Every Installer Role chosen; with none chosen, the roles the buttons
+    # already have are kept
+    chosen = (model.dyn_invoke_for(:"PDC Installer Lib")[:selected_roles].call(model, spec['button_role_field'].to_sym) rescue []) || []
+    existing_role_ids = MachineEventRole.where(machine_event_id: MachineEvent.where(machine_workflow_id: workflow.id, deleted_at: nil).select(:id)).pluck(:role_id).uniq
+    roles = chosen.any? ? chosen : Role.where(id: existing_role_ids, deleted_at: nil).to_a
+    role = roles.first
+    if roles.empty?
       log << (handoff['phase'] == 'before_new' ? "buttons: waiting (they're created when this record is saved with an Installer Role)" :
                                   "buttons: not created (choose an Installer Role, save, then click Update Installer or create the buttons' role in the workflow editor)")
     end
@@ -298,11 +320,11 @@ result =
       next if role.nil? && !MachineEvent.where(machine_workflow_id: workflow.id, button_name: e['button_name'], deleted_at: nil).exists?
       existing = MachineEvent.where(machine_workflow_id: workflow.id, button_name: e['button_name'], deleted_at: nil).first
       if existing
-        have = MachineEventRole.where(machine_event_id: existing.id).pluck(:role_id)
-        if role && (have.empty? || (chosen && have != [chosen.id]))
+        have = MachineEventRole.where(machine_event_id: existing.id).pluck(:role_id).uniq.sort
+        if roles.any? && (have.empty? || (chosen.any? && have != chosen.map(&:id).sort))
           MachineEventRole.where(machine_event_id: existing.id).destroy_all
-          MachineEventRole.create!(machine_event_id: existing.id, role_id: role.id)
-          log << "button #{e['button_name']}: role set to #{role.name}"
+          roles.each { |rl| MachineEventRole.create!(machine_event_id: existing.id, role_id: rl.id) }
+          log << "button #{e['button_name']}: roles set to #{roles.map(&:name).join(', ')}"
         else
           log << "button #{e['button_name']}: exists"
         end
@@ -316,7 +338,7 @@ result =
           e['from_states'].each do |from|
             MachineEventFromState.create!(machine_event_id: ev.id, from_state_id: states.fetch(from).id, button_order: i + 1)
           end
-          MachineEventRole.create!(machine_event_id: ev.id, role_id: role.id)
+          roles.each { |rl| MachineEventRole.create!(machine_event_id: ev.id, role_id: rl.id) }
         end
         log << "button #{e['button_name']}: created"
       rescue => err
@@ -364,7 +386,7 @@ entries = log.map do |line|
            when 'created', 'restored' then status
            when nil then (key = line.to_s; 'note')
            when /\Anot (found|created)/ then status
-           when /updated|overwritten|role set|starts in/ then 'overwrote'
+           when /updated|overwritten|roles? set|starts in/ then 'overwrote'
            else 'note'
            end
   { 'status' => status, 'key' => key }
