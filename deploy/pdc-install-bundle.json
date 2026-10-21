@@ -1877,14 +1877,16 @@
       "model_type": "MacModelTypeDynPdcApplicationForm1",
       "name": "Get PDC Client ID",
       "method_type": "method",
-      "secret": true
+      "secret": true,
+      "placeholder": "# PDC client ID for this Fluxx instance: replace Not Configured with the client ID\n# the PDC issued you, keeping the quotes. The PDC installer creates this method if\n# it's missing but never changes it afterwards.\n\"Not Configured\"\n"
     },
     {
       "key": "MacModelTypeDynPdcApplicationForm1#Get PDC Client Secret",
       "model_type": "MacModelTypeDynPdcApplicationForm1",
       "name": "Get PDC Client Secret",
       "method_type": "method",
-      "secret": true
+      "secret": true,
+      "placeholder": "# PDC client secret for this Fluxx instance: replace Not Configured with the client\n# secret the PDC issued you, keeping the quotes. The PDC installer creates this method\n# if it's missing but never changes it afterwards, and never copies its value.\n\"Not Configured\"\n"
     },
     {
       "key": "MacModelTypeDynPdcApplicationForm1#List_Opportunities_to_JSON",

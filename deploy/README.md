@@ -79,7 +79,8 @@ The deploy model stays in place after install. To remove PDC completely, click
    | `DIFFERS` | Present, but `detail` lists the checksum or setting that differs |
    | `MISSING` | No record with that name/key |
    | `EXTRA` | A live PDC record the manifest doesn't list (e.g. a leftover test method) |
-   | `SKIPPED_SECRET` | Secret method: checked it exists, body never compared |
+   | `SKIPPED_SECRET` | Secret method (PDC client ID / secret): it exists and holds a value; the value is never read or compared |
+   | `NOT_CONFIGURED` | Secret method still holds the placeholder `"Not Configured"`: replace it with this instance's value, keeping the quotes |
    | `MARKER_NOT_FOUND` | GrantRequest `granted` hook has no `###PDC_CODE###` block (Install adds it) |
    | `MISSING_ROLE` / `ROLE_DIFFERS` | Integration Map button has no role, or not the chosen one |
    | `UNMARKED` | PDC stencil element recognized by fingerprint but lacking its `PDC:ELEMENT` marker (Install adds it) |
@@ -132,8 +133,10 @@ that isn't `MATCH`.
   always runs.
 - If a PDC model still can't be set up, Install touches only the PDC models that exist:
   GrantRequest's PDC hooks call into all three, so they wait.
-- Install never removes anything it doesn't recognize, and never writes the secret
-  `Get PDC Client ID` / `Get PDC Client Secret` methods; enter those in Fluxx.
+- Install never removes anything it doesn't recognize. The `Get PDC Client ID` /
+  `Get PDC Client Secret` methods are created with the placeholder `"Not Configured"`
+  if they don't exist, and never changed afterwards: replace the placeholder with your
+  value in Fluxx, keeping the quotes.
 
 ## Results and snapshots on the form
 

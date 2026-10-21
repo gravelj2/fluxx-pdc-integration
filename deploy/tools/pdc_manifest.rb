@@ -347,7 +347,9 @@ def build_bundle(manifest)
     end,
     'methods' => manifest['methods'].map do |m|
       e = m.slice('key', 'model_type', 'name', 'method_type')
-      m['secret'] ? e.merge('secret' => true) : e.merge('body' => body.call(m['body_path']))
+      # Secret methods carry only the repo placeholder ("Not Configured"), which
+      # Install uses to create them when missing
+      m['secret'] ? e.merge('secret' => true, 'placeholder' => read_repo(body_path('methods', m, 'body'))) : e.merge('body' => body.call(m['body_path']))
     end,
     'themes' => manifest['themes'].map do |t|
       t.slice('key', 'model_type', 'name', 'label', 'external_access_enabled', 'limit_by_user_profile_flag',

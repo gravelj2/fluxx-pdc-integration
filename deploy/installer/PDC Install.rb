@@ -319,7 +319,17 @@ install = lambda do |log|
     if m['secret']
       next log['ok'] << m['key'] if rel.where(deleted_at: nil).exists?
       gone = rel.where.not(deleted_at: nil).order(deleted_at: :desc).first
-      next log['secret method missing (enter it by hand)'] << m['key'] if gone.nil?
+      if gone.nil?
+        # Created with the repo placeholder, so it's clear what to replace and in
+        # what form; never written again after this
+        if m['placeholder'].to_s.strip.empty?
+          log['secret method missing (enter it by hand)'] << m['key']
+        else
+          ModelMethod.create!(model_type: m['model_type'], name: m['name'], method_type: m['method_type'] || 'method', unsafe_dyn_method: m['placeholder'])
+          log['created (enter the real value)'] << m['key']
+        end
+        next
+      end
       gone.deleted_at = nil
       gone.save!
       log['restored'] << m['key']
