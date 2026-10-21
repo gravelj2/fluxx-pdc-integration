@@ -232,7 +232,7 @@
       "key": "MacModelTypeDynPdcApplicationForm1",
       "model_type": "MacModelTypeDynPdcApplicationForm1",
       "name": "PDC Integration Map",
-      "show_in_plus_menu": false
+      "show_in_plus_menu": true
     },
     {
       "key": "MacModelTypeDynPdcConsent",
