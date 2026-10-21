@@ -255,7 +255,12 @@ result =
           end
         end
         out = fresh.call(el['raw'])
+        # Fluxx's form builder expects every element to carry these, as the
+        # ones it saves itself do
         out['uid'] ||= SecureRandom.uuid
+        out['config'] ||= {}
+        out['visibility'] ||= visibility.call
+        out['styling'] ||= { 'alignment' => 'left' }
         out
       elsif el['field']
         raise "layout field #{el['field']} is not an attribute on #{mt}" unless attr_types.key?(el['field'])
