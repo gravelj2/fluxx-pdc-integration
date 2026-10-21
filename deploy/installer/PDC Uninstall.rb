@@ -8,7 +8,10 @@
 # bring everything back with its original id):
 #   - PDC elements on forms (by PDC:ELEMENT marker, or by fingerprint when the
 #     content is the unedited repo copy), the GrantRequest PDC fields on
-#     forms, and a group left holding only PDC elements
+#     forms, and a group left holding only PDC elements. Grant forms are never
+#     changed: each active one with PDC is copied as "<name> (PDC Removed)"
+#     without the PDC pieces and switched on, and the form with PDC is switched
+#     off, so either can be used. Switched-off forms are left alone.
 #   - the ###PDC_CODE### block in GrantRequest's granted hook
 #   - PDC buttons, states, methods and fields (the secret client ID / secret
 #     methods are never touched)
@@ -79,6 +82,7 @@ uninstall = lambda do |log|
     # One form that can't be handled is listed and skipped; the rest carry on
     begin
       st = Stencil.find(stencil_id)
+      next if st.model_type == gr['model_type'] && !st.enabled   # switched-off grant forms are left as they are
       doc = JSON.parse(st['json'].to_s)
       node_at = lambda { |trail| trail.inject(doc) { |n, i| n['elements'][i] } }
       label = lambda { |node| (node['config'].is_a?(Hash) && node['config']['label']) || node['label'] || 'group' }
@@ -101,11 +105,11 @@ uninstall = lambda do |log|
         end
       end
       trails.delete_if { |t, _| (1...t.size).any? { |n| trails.key?(t[0, n]) } }
-      # Groups that keep other content stay, and are listed.
-      trails.keys.select { |t| t.size > 1 }.map { |t| t[0..-2] }.uniq.each do |p|
+      # Groups that keep other content stay, and are listed (once saved).
+      kept_notes = trails.keys.select { |t| t.size > 1 }.map { |t| t[0..-2] }.uniq.map do |p|
         kept = node_at.call(p)
         what = kept['element_type'] == 'group' ? 'group kept, it holds other content' : "#{kept['element_type']} container kept (only groups are removed)"
-        log["review: #{what}"] << "'#{label.call(kept)}' @ stencil #{stencil_id} (#{st.name.to_s.strip})"
+        ["review: #{what}", "'#{label.call(kept)}'"]
       end
       # Remove deepest/last first so earlier trails stay valid.
       trails.keys.sort.reverse.each do |t|
@@ -118,11 +122,25 @@ uninstall = lambda do |log|
       end
       leftover = removed_ids.uniq.select { |id| count.call(new_raw, id) != count.call(st['json'].to_s, id) - removed_ids.count(id) }
       raise "stencil #{stencil_id}: PDC element #{leftover.join(', ')} not removed as expected; nothing saved" if leftover.any?
-      lib[:write_stencil].call(st, new_raw)
-      trails.values.sort.each { |what| log['removed from form'] << "#{what} @ stencil #{stencil_id} (#{st.name.to_s.strip})" }
-      if st.name.to_s.end_with?(' (PDC)')
-        log['review: PDC copy of a form'] << "stencil #{stencil_id} (#{st.name.to_s.strip}): to go back to the original, switch it on in the theme and delete this copy"
+      if st.model_type == gr['model_type']
+        # A grant form is never changed: an exact copy (every setting and any
+        # customisation kept) without the PDC elements is switched on, and the
+        # form with PDC is switched off, so either can be switched back on
+        copy = st.dup
+        base = st.name.to_s.strip.sub(/\s*\(PDC( Removed)?\)\z/, '')
+        copy['name'] = "#{base} (PDC Removed)"
+        copy.enabled = true
+        lib[:write_stencil].call(copy, new_raw)
+        st.enabled = false
+        st.save!
+        log['copied form without PDC (the form with PDC kept, switched off)'] << "stencil #{st.id} -> #{copy.id} (#{copy.name})"
+        where = "stencil #{copy.id} (#{copy.name})"
+      else
+        lib[:write_stencil].call(st, new_raw)
+        where = "stencil #{stencil_id} (#{st.name.to_s.strip})"
       end
+      trails.values.sort.each { |what| log['removed from form'] << "#{what} @ #{where}" }
+      kept_notes.each { |key, what| log[key] << "#{what} @ #{where}" }
     rescue => e
       where = Array(e.backtrace).find { |b| b.include?('eval') } || Array(e.backtrace).first
       log['review: could not remove PDC elements from this form, left as it was'] << "stencil #{stencil_id}: #{e.class}: #{e.message} (#{where})"
@@ -193,4 +211,6 @@ uninstall = lambda do |log|
 end
 
 owned_types = bundle['scope']['owned_model_types'].keys - [model.class.name]
-lib[:run_with_snapshots].call(model, 'Uninstall', 'uninstall_results', lib[:snapshot_targets].call(bundle), save_now, uninstall, owned_types)
+# Which grant forms exist now, so Restore Previous can remove the copies made
+form_sets = [{ 'table' => 'FormSet', 'key' => 'grant forms', 'find' => { 'model_type' => bundle['scope']['grant_request']['model_type'] } }]
+lib[:run_with_snapshots].call(model, 'Uninstall', 'uninstall_results', lib[:snapshot_targets].call(bundle, [], form_sets), save_now, uninstall, owned_types)
