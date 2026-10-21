@@ -14,6 +14,9 @@
     { "name": "uninstall_results", "description": "Uninstall Results", "attribute_type": "text" },
     { "name": "restore_results",   "description": "Restore Results",   "attribute_type": "text" },
     { "name": "installer_results", "description": "Installer Results", "attribute_type": "text" },
+    { "name": "credentials_results", "description": "Credentials Results", "attribute_type": "text" },
+    { "name": "pdc_client_id_input",     "description": "PDC Client ID",     "attribute_type": "string" },
+    { "name": "pdc_client_secret_input", "description": "PDC Client Secret", "attribute_type": "string" },
     { "name": "previous_configuration", "description": "Previous Configuration", "attribute_type": "text" },
     { "name": "current_configuration",  "description": "Current Configuration",  "attribute_type": "text" }
   ],
@@ -35,7 +38,8 @@
     { "name": "PDC_Export_Components",      "path": "deploy/installer/PDC_Export_Components.rb" },
     { "name": "PDC Populate Options",       "path": "deploy/installer/PDC Populate Options.rb" },
     { "name": "PDC_Results",                "path": "deploy/installer/PDC_Results.rb" },
-    { "name": "PDC Keep Deploy Record",     "path": "deploy/installer/PDC Keep Deploy Record.rb", "method_type": "after_destroy" }
+    { "name": "PDC Keep Deploy Record",     "path": "deploy/installer/PDC Keep Deploy Record.rb", "method_type": "after_destroy" },
+    { "name": "PDC Save Credentials",       "path": "deploy/installer/PDC Save Credentials.rb", "method_type": "before_save" }
   ],
 
   "_state_hook_prefix": "Put before the method call in every generated state hook so the record stays in its previous state (same pattern as the existing check_for_updates state).",

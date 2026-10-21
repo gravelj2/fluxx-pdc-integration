@@ -16,7 +16,7 @@ read = lambda do |field|
   end
 end
 
-sections = %w[install_results uninstall_results restore_results validate_results installer_results]
+sections = %w[install_results uninstall_results restore_results validate_results installer_results credentials_results]
            .map { |f| read.call(f) }.compact.sort_by { |s| s['ran_at'].to_s }.reverse
 snapshots = {}
 { 'previous' => 'previous_configuration', 'current' => 'current_configuration' }.each do |k, f|

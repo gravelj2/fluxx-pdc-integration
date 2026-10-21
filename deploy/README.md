@@ -60,6 +60,11 @@ The deploy model stays in place after install. To remove PDC completely, click
      Consent form that are restricted (TRN: Employee with Permissions Plus)
    - **Grant Request Themes**: which grant themes show grantees the PDC component; each
      chosen theme's forms get both the edit and the read-only component
+   - **PDC Client ID** / **PDC Client Secret**: the credentials the PDC issued you. Type
+     them in and save: they're written into the `Get PDC Client ID` / `Get PDC Client
+     Secret` methods on the PDC Integration Map (run Install first, so it exists) and the
+     fields are cleared, so the values never stay on the deploy record, in its results
+     or in snapshots. The form's Credentials section says what was saved.
 3. Click a button:
 
    | Button | What it does |
@@ -135,8 +140,9 @@ that isn't `MATCH`.
   GrantRequest's PDC hooks call into all three, so they wait.
 - Install never removes anything it doesn't recognize. The `Get PDC Client ID` /
   `Get PDC Client Secret` methods are created with the placeholder `"Not Configured"`
-  if they don't exist, and never changed afterwards: replace the placeholder with your
-  value in Fluxx, keeping the quotes.
+  if they don't exist, and never changed by Install afterwards: set them through the
+  PDC Client ID / Secret fields on the deploy record (or replace the placeholder in
+  Fluxx, keeping the quotes).
 
 ## Results and snapshots on the form
 
