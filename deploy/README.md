@@ -71,7 +71,7 @@ The deploy model stays in place after install. To remove PDC completely, click
    |---|---|
    | **Validate** | Read-only. Compares this instance with the repo at `repo_ref`, so it previews what Install would change. |
    | **Install** | Installs and updates. Installs what's missing, restores what was soft-deleted (same id, so saved answers keep working), and overwrites anything PDC owns that differs from the repo. To move to another release, change `repo_ref` and click Install. Never removes anything: methods, states or buttons PDC didn't ship belong to whoever built them. |
-   | **Uninstall** | Removes what PDC owns, soft-deleting it as Fluxx does: PDC's fields, methods, states and buttons, its elements on forms and its block in the `granted` hook, and then the three PDC models with their themes, workflows and forms. Fluxx removes a model's records and other settings with it. Lists anything it isn't sure about and the PDC copies of grant forms for review. Restore Previous brings the configuration back; it doesn't restore records. |
+   | **Uninstall** | Removes what PDC owns, soft-deleting it as Fluxx does: PDC's fields, methods, states and buttons, its elements on forms and its block in the `granted` hook, and then the three PDC models with their themes, workflows and forms. Fluxx removes a model's records and other settings with it. Grant forms aren't edited: each active one gets a "(PDC Removed)" copy without PDC, switched on, and the form with PDC is switched off. Lists anything it isn't sure about for review. Restore Previous brings the configuration back; it doesn't restore records. |
    | **Restore Previous** | Puts every PDC component back the way it was before the last Install, Uninstall or Restore. Clicking it twice undoes the restore. |
    | **Refresh Lists** | Reloads the role, profile and theme dropdowns. |
    | **Update Installer** | Updates the deploy model itself from the repo. |
@@ -132,7 +132,10 @@ that isn't `MATCH`.
   off. The original, unchanged, is the rollback inside Fluxx. " (PDC)" is added to the
   copy's name once, so names can repeat. A theme with several active forms gets a copy
   of each. Switched-off forms are left alone. Restore Previous removes the copies and
-  switches the originals back on; Uninstall removes the PDC elements and lists the copies.
+  switches the originals back on. Uninstall works the same way: each active grant form
+  with PDC is copied as "<name> (PDC Removed)" without the PDC elements and switched on,
+  and the form with PDC (with any changes you made to it) is switched off, so you can
+  switch between them. A later Install copies a "(PDC Removed)" form back as "(PDC)".
   (The grantee dashboard page is updated in place.)
 - **The `###PDC_CODE###` block** goes at the top of GrantRequest's `granted` hook, so it
   always runs.
@@ -234,8 +237,8 @@ exported.
   instance), and the main form stencil.
 - **Shared** (GrantRequest, GenericTemplate): only `PDC`-prefixed methods, the
   `pdc_account_exists` / `pdc_proposal_id` attributes, the `###PDC_CODE###` slice of the
-  `granted` hook, marked/fingerprinted stencil elements, and the "(PDC)" copies of grant
-  forms.
+  `granted` hook, marked/fingerprinted stencil elements, and the "(PDC)" / "(PDC Removed)"
+  copies of grant forms.
 - **Dropdowns filled at runtime** (`runtime_option_attributes`): the attribute must exist;
   its options aren't compared.
 - `ModelAttributeChoice` holds per-record values and is never read or written.

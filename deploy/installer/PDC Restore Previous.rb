@@ -45,7 +45,7 @@ targets += form_types_of.map { |mt| { 'table' => 'FormSet', 'key' => "forms #{mt
 form_types_of.each do |mt|
   dynamic = MachineModelType.where(model_type: mt).exists?
   Stencil.where(model_type: mt, deleted_at: nil).each do |f|
-    next unless dynamic || f.name.to_s.strip.end_with?('(PDC)')
+    next unless dynamic || f.name.to_s.strip.end_with?('(PDC)', '(PDC Removed)')
     next if targets.any? { |t| t['table'] == 'Stencil' && t['find'] == { 'id' => f.id } }
     targets << { 'table' => 'Stencil', 'key' => "stencil #{f.id}", 'find' => { 'id' => f.id } }
   end
@@ -247,7 +247,7 @@ restore = lambda do |log|
     next if dynamic && !MachineModelType.where(model_type: mt, deleted_at: nil).exists?
     Stencil.where(model_type: mt, deleted_at: nil).where.not(id: ids).each do |f|
       next unless lib[:form_types].call(f).include?('form')
-      next if !dynamic && !f.name.to_s.strip.end_with?('(PDC)')
+      next if !dynamic && !f.name.to_s.strip.end_with?('(PDC)', '(PDC Removed)')
       remove.call(f)
       log['removed (was not there before)'] << "form #{mt} #{f.name.to_s.strip} (stencil #{f.id})"
     end

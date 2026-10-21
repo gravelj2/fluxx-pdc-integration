@@ -544,7 +544,7 @@ install = lambda do |log|
         next
       end
       copy = st.dup
-      base = st.name.to_s.strip
+      base = st.name.to_s.strip.sub(/\s*\(PDC Removed\)\z/, '')   # a form Uninstall made goes back to "(PDC)"
       copy['name'] = base.end_with?('(PDC)') ? base : "#{base} (PDC)"
       copy.enabled = true
       lib[:write_stencil].call(copy, raw)
