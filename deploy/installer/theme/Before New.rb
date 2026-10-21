@@ -28,7 +28,18 @@ repo_ref = "main"
 others = model.class.where(deleted_at: nil).where.not(id: model.id)
 others = others.where(is_temp_precreate: [false, nil]) if model.class.column_names.include?('is_temp_precreate')
 
-if others.exists?
+# Until the installer is set up (its bootstrap method exists), earlier records
+# are leftovers of attempts that failed (e.g. the repo couldn't be reached)
+# and hold only the error: they're soft-deleted so a retry just works.
+installer_set_up = ModelMethod.where(model_type: model.class.name, name: 'PDC Bootstrap Deploy Model', deleted_at: nil).exists?
+if others.exists? && !installer_set_up
+  others.each do |old|
+    old.deleted_at = Time.now
+    old.save!(validate: false) rescue nil
+  end
+end
+
+if others.exists? && installer_set_up
   model.delete
 else
   path = "deploy/installer/PDC Bootstrap Deploy Model.rb"
