@@ -532,6 +532,8 @@ lib[:collect] = lambda do |scope, include_bodies|
     e = { 'key' => "#{mm.model_type}##{mm.name}", 'model_type' => mm.model_type, 'name' => mm.name, 'method_type' => mm.method_type }
     if secrets.include?(mm.name)
       e['secret'] = true
+      # Only whether the value has been entered; the value itself is never read out
+      e['configured'] = !mm.unsafe_dyn_method.to_s.include?('Not Configured')
     else
       add_body.call(e, 'body', mm.unsafe_dyn_method)
     end
@@ -686,6 +688,7 @@ end
 # MISSING_ROLE, ROLE_DIFFERS, PROFILE_DIFFERS, UNMARKED, UNMARKED_DIFFERS,
 # CONFIG_DIFFERS, AMBIGUOUS, DUPLICATE.
 lib[:validate] = lambda do |manifest, live, deploy_model|
+  # (statuses also include NOT_CONFIGURED: a secret method still holding its placeholder)
   rows = []
   row = lambda { |kind, key, status, detail = nil| rows << { 'kind' => kind, 'key' => key, 'status' => status, 'detail' => detail }.compact }
   wanted_roles = lib[:selected_roles].call(deploy_model, :pdc_event_role).map(&:name).sort
@@ -706,7 +709,11 @@ lib[:validate] = lambda do |manifest, live, deploy_model|
         next
       end
       if m['secret']
-        row.call(kind, key, 'SKIPPED_SECRET')
+        if l['configured'] == false
+          row.call(kind, key, 'NOT_CONFIGURED', ["still the placeholder: replace Not Configured with this instance's value, keeping the quotes"])
+        else
+          row.call(kind, key, 'SKIPPED_SECRET')
+        end
         next
       end
       if l['marker_found'] == false
