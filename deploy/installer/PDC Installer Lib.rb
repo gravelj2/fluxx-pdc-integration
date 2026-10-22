@@ -558,9 +558,9 @@ lib[:collect] = lambda do |scope, include_bodies|
         ee = {
           'key' => "#{t.model_type}/#{t.name}>#{ev.button_name}", 'model_type' => t.model_type, 'theme' => t.name,
           'button_name' => ev.button_name, 'name' => ev.name, 'to_state' => state_name.call(ev.to_state_id),
+          # The states the button shows on (its order there is Fluxx's own)
           'from_states' => MachineEventFromState.where(machine_event_id: ev.id)
-                                                .map { |f| [state_name.call(f.from_state_id), f.button_order] }
-                                                .sort_by { |pair| pair[0].to_s },
+                                                .map { |f| state_name.call(f.from_state_id).to_s }.uniq.sort,
           'is_validation_suppressed' => ev.is_validation_suppressed ? true : false,
           'guard_strategy' => ev.guard_strategy, 'filter' => ev.filter
         }
@@ -1026,22 +1026,28 @@ end
 # fallback if that state row is ever hard-deleted), and its role ids.
 # Saves a button with the given roles and from-states. Fluxx won't save a
 # button that has no role, so missing links are attached before the save.
-lib[:save_event] = lambda do |ev, role_ids, from_pairs|
+lib[:save_event] = lambda do |ev, role_ids, from_ids|
   have_roles = ev.new_record? ? [] : MachineEventRole.where(machine_event_id: ev.id).pluck(:role_id)
   # Fluxx validates the button's roles list, so assign roles (the link rows are
   # created on save)
   ev.roles = Role.where(id: role_ids).to_a if have_roles.empty? && role_ids.any?
   if ev.new_record?
-    from_pairs.each { |sid, order| ev.machine_event_from_states.build(from_state_id: sid, button_order: order) }
+    from_ids.each { |sid| ev.machine_event_from_states.build(from_state_id: sid) }   # Fluxx sets the order
   end
   ev.save!
   ev
 end
 
+# Snapshots taken before the button order was dropped hold [name, order, id]
+lib[:links_from] = lambda { |links| Array(links && links['from']).map { |x| [x.first, x.last] }.uniq.sort_by { |p| [p[0].to_s, p[1].to_i] } }
+lib[:same_links] = lambda do |a, b|
+  a.is_a?(Hash) && b.is_a?(Hash) && a.reject { |k, _| k == 'from' } == b.reject { |k, _| k == 'from' } && lib[:links_from].call(a) == lib[:links_from].call(b)
+end
+
 lib[:event_links] = lambda do |ev|
   name = lambda { |id| MachineState.find_by(id: id)&.name }
   { 'to_state' => name.call(ev.to_state_id), 'to_state_id' => ev.to_state_id,
-    'from' => MachineEventFromState.where(machine_event_id: ev.id).map { |f| [name.call(f.from_state_id), f.button_order, f.from_state_id] }.sort_by { |p| [p[0].to_s, p[2].to_i] },
+    'from' => MachineEventFromState.where(machine_event_id: ev.id).map { |f| [name.call(f.from_state_id), f.from_state_id] }.uniq.sort_by { |p| [p[0].to_s, p[1].to_i] },
     'roles' => MachineEventRole.where(machine_event_id: ev.id).pluck(:role_id).sort }
 end
 

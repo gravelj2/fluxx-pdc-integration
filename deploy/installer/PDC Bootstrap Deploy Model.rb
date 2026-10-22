@@ -334,7 +334,7 @@ result =
       { 'name' => 'type', 'value' => 'MachineModel' },
       { 'name' => 'filter_type', 'value' => 'MachineModel' }
     ])
-    spec['events'].each_with_index do |e, i|
+    spec['events'].each do |e|
       next if role.nil? && !MachineEvent.where(machine_workflow_id: workflow.id, button_name: e['button_name'], deleted_at: nil).exists?
       existing = MachineEvent.where(machine_workflow_id: workflow.id, button_name: e['button_name'], deleted_at: nil).first
       if existing
@@ -356,7 +356,7 @@ result =
                                 to_state_id: states.fetch(e['to_state']).id, is_validation_suppressed: true,
                                 guard_strategy: 'none', filter: filter)
           ev.roles = roles   # Fluxx validates the roles list itself; the role links are created on save
-          e['from_states'].each { |from| ev.machine_event_from_states.build(from_state_id: states.fetch(from).id, button_order: i + 1) }
+          e['from_states'].each { |from| ev.machine_event_from_states.build(from_state_id: states.fetch(from).id) }
           ev.save!
         end
         log << "button #{e['button_name']}: created"
