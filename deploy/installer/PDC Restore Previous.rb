@@ -79,7 +79,7 @@ restore = lambda do |log|
     live_deleted = live.has_attribute?(:deleted_at) && live.deleted_at.present?
     next true if live_deleted != (after['deleted'] ? true : false)
     next true if (after['cols'] || {}).any? { |c, v| live[c] != v }
-    r['table'] == 'MachineEvent' && after['links'] && lib[:event_links].call(live) != after['links']
+    r['table'] == 'MachineEvent' && after['links'] && !lib[:same_links].call(lib[:event_links].call(live), after['links'])
   end
   # Records in dependency order, so fields exist before their options and
   # states before the buttons that point at them. Removals of things that
@@ -221,11 +221,11 @@ restore = lambda do |log|
       rec.save!
       fixed << 'target'
     end
-    want_from = links['from'].map { |name, order, id| [sid.call(name, id), order] }.reject { |id, _| id.nil? }.sort
-    have_from = MachineEventFromState.where(machine_event_id: rec.id).map { |f| [f.from_state_id, f.button_order] }.sort
+    want_from = lib[:links_from].call(links).map { |name, id| sid.call(name, id) }.compact.uniq.sort
+    have_from = MachineEventFromState.where(machine_event_id: rec.id).pluck(:from_state_id).uniq.sort
     if have_from != want_from
       MachineEventFromState.where(machine_event_id: rec.id).destroy_all
-      want_from.each { |id, order| MachineEventFromState.create!(machine_event_id: rec.id, from_state_id: id, button_order: order) }
+      want_from.each { |id| MachineEventFromState.create!(machine_event_id: rec.id, from_state_id: id) }   # Fluxx sets the order
       fixed << 'from-states'
     end
     have_roles = MachineEventRole.where(machine_event_id: rec.id).pluck(:role_id).sort

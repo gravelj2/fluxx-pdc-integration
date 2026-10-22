@@ -116,7 +116,7 @@ How the pieces of the integration are stored in Fluxx. Confirmed against TRN
 | Before New / After Create | `ModelTheme.unsafe_before_new_block` / `unsafe_after_create_block` | `model_type` + theme `name` |
 | Workflow state | `MachineState` (one row per model type, shared by every theme); hooks in `unsafe_before_validation_enter` / `unsafe_after_enter` | `model_type` + `name` |
 | Workflow | `MachineWorkflow`, one per `ModelTheme` | theme |
-| Button | `MachineEvent` (`to_state_id`, `unsafe_guard`, `filter`) + `machine_event_from_states` (`button_order`) + `machine_event_roles` | workflow + `button_name` |
+| Button | `MachineEvent` (`to_state_id`, `unsafe_guard`, `filter`) + `machine_event_from_states` (the states it shows on; Fluxx sets `button_order` itself, so it is not compared) + `machine_event_roles` | workflow + `button_name` |
 | Layout | `Stencil.json` (element tree; groups nest children under `elements`) | see below |
 | Profile permission | `UserProfileRule` (`permission_name`, `allowed`) | `model_type` + `permission_name` |
 

@@ -2132,14 +2132,8 @@
       "name": null,
       "to_state": "active",
       "from_states": [
-        [
-          "inactive",
-          1
-        ],
-        [
-          "new",
-          3
-        ]
+        "inactive",
+        "new"
       ],
       "is_validation_suppressed": false,
       "guard_strategy": "guard",
@@ -2154,10 +2148,7 @@
       "name": null,
       "to_state": "delete_field_mappings_on_this_form",
       "from_states": [
-        [
-          "new",
-          9
-        ]
+        "new"
       ],
       "is_validation_suppressed": true,
       "guard_strategy": "none",
@@ -2172,10 +2163,7 @@
       "name": null,
       "to_state": "create_application_form_in_pdc",
       "from_states": [
-        [
-          "new",
-          10
-        ]
+        "new"
       ],
       "is_validation_suppressed": false,
       "guard_strategy": "guard",
@@ -2190,10 +2178,7 @@
       "name": null,
       "to_state": "inactive",
       "from_states": [
-        [
-          "active",
-          3
-        ]
+        "active"
       ],
       "is_validation_suppressed": false,
       "guard_strategy": "none",
@@ -2208,18 +2193,9 @@
       "name": null,
       "to_state": "retired",
       "from_states": [
-        [
-          "active",
-          4
-        ],
-        [
-          "inactive",
-          2
-        ],
-        [
-          "new",
-          12
-        ]
+        "active",
+        "inactive",
+        "new"
       ],
       "is_validation_suppressed": false,
       "guard_strategy": "none",
@@ -2234,10 +2210,7 @@
       "name": null,
       "to_state": "update_field_mapping_from_selected_application",
       "from_states": [
-        [
-          "new",
-          8
-        ]
+        "new"
       ],
       "is_validation_suppressed": true,
       "guard_strategy": "none",
@@ -2252,10 +2225,7 @@
       "name": null,
       "to_state": "set_sort_order_of_mapped_fields",
       "from_states": [
-        [
-          "new",
-          11
-        ]
+        "new"
       ],
       "is_validation_suppressed": true,
       "guard_strategy": "none",
@@ -2270,10 +2240,7 @@
       "name": null,
       "to_state": "update_application_list_from_pdc",
       "from_states": [
-        [
-          "new",
-          2
-        ]
+        "new"
       ],
       "is_validation_suppressed": true,
       "guard_strategy": "none",
@@ -2288,10 +2255,7 @@
       "name": null,
       "to_state": "update_fluxx_with_opportunities_from_pdc",
       "from_states": [
-        [
-          "new",
-          1
-        ]
+        "new"
       ],
       "is_validation_suppressed": true,
       "guard_strategy": "none",

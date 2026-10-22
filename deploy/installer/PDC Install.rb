@@ -403,19 +403,20 @@ install = lambda do |log|
       next
     end
     to_id = state_id.call(e['model_type'], e['to_state'])
-    want_from = e['from_states'].map { |name, order| [state_id.call(e['model_type'], name), order] }
-    if to_id.nil? || want_from.any? { |id, _| id.nil? }
+    # The states the button shows on (older repo copies also carried an order)
+    want_from = Array(e['from_states']).map { |x| state_id.call(e['model_type'], Array(x).first) }
+    if to_id.nil? || want_from.any?(&:nil?)
       log['skipped, a state it needs is missing'] << e['key']
       next
     end
-    want_from = want_from.sort
+    want_from = want_from.uniq.sort
     want = { 'to_state_id' => to_id, 'is_validation_suppressed' => e['is_validation_suppressed'],
              'guard_strategy' => e['guard_strategy'], 'filter' => e['filter'], 'unsafe_guard' => e['guard'] }
     set_links = lambda do |ev|
-      have = MachineEventFromState.where(machine_event_id: ev.id).map { |f| [f.from_state_id, f.button_order] }.sort
+      have = MachineEventFromState.where(machine_event_id: ev.id).pluck(:from_state_id).uniq.sort
       if have != want_from
         MachineEventFromState.where(machine_event_id: ev.id).destroy_all
-        want_from.each { |id, order| MachineEventFromState.create!(machine_event_id: ev.id, from_state_id: id, button_order: order) }
+        want_from.each { |id| MachineEventFromState.create!(machine_event_id: ev.id, from_state_id: id) }
       end
       if roles_wrong.call(ev, wf) && (want_roles = pick_roles.call(wf)).any?
         MachineEventRole.where(machine_event_id: ev.id).destroy_all
@@ -424,7 +425,7 @@ install = lambda do |log|
     end
     rel = MachineEvent.where(machine_workflow_id: wf.id, button_name: e['button_name'])
     if (live = rel.where(deleted_at: nil).first)
-      have = MachineEventFromState.where(machine_event_id: live.id).map { |f| [f.from_state_id, f.button_order] }.sort
+      have = MachineEventFromState.where(machine_event_id: live.id).pluck(:from_state_id).uniq.sort
       extra = []
       extra << 'from_states' if have != want_from
       if roles_wrong.call(live, wf)
