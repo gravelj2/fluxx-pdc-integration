@@ -973,6 +973,18 @@
       "before_validation_enter_path": "pdc-map/pdc-integration-map/states/update_field_mapping_from_selected_application.before_validation_enter.rb"
     },
     {
+      "key": "MacModelTypeDynPdcApplicationForm1:update_fluxx_field_list",
+      "model_type": "MacModelTypeDynPdcApplicationForm1",
+      "name": "update_fluxx_field_list",
+      "description": "Update Fluxx Field List",
+      "state_type": "workflow",
+      "state_order": 18,
+      "allowed_roles": "[]",
+      "before_validation_enter_sha256": "96b9bead52937d17570fdb3580540c35e95c2e6ba4e343188e20b4627fa91191",
+      "after_enter_sha256": null,
+      "before_validation_enter_path": "pdc-map/pdc-integration-map/states/update_fluxx_field_list.before_validation_enter.rb"
+    },
+    {
       "key": "MacModelTypeDynPdcApplicationForm1:update_fluxx_with_opportunities_from_pdc",
       "model_type": "MacModelTypeDynPdcApplicationForm1",
       "name": "update_fluxx_with_opportunities_from_pdc",
@@ -983,6 +995,18 @@
       "before_validation_enter_sha256": "6b05f9082c22f3f856a19013f730c8bccbba21fc678d67748b77fe07af0457a1",
       "after_enter_sha256": null,
       "before_validation_enter_path": "pdc-map/pdc-integration-map/states/update_fluxx_with_opportunities_from_pdc.before_validation_enter.rb"
+    },
+    {
+      "key": "MacModelTypeDynPdcApplicationForm1:update_pdc_field_list",
+      "model_type": "MacModelTypeDynPdcApplicationForm1",
+      "name": "update_pdc_field_list",
+      "description": "Update PDC Field List",
+      "state_type": "workflow",
+      "state_order": 17,
+      "allowed_roles": "[]",
+      "before_validation_enter_sha256": "0419349674abbc19bab5e492699e565ba835697ff4e5190d30191beaa35873ae",
+      "after_enter_sha256": null,
+      "before_validation_enter_path": "pdc-map/pdc-integration-map/states/update_pdc_field_list.before_validation_enter.rb"
     }
   ],
   "workflows": [
@@ -1132,12 +1156,42 @@
       "guard_sha256": null
     },
     {
+      "key": "MacModelTypeDynPdcApplicationForm1/PDC Integration Map>Update Fluxx Field List",
+      "model_type": "MacModelTypeDynPdcApplicationForm1",
+      "theme": "PDC Integration Map",
+      "button_name": "Update Fluxx Field List",
+      "name": null,
+      "to_state": "update_fluxx_field_list",
+      "from_states": [
+        "new"
+      ],
+      "is_validation_suppressed": true,
+      "guard_strategy": "none",
+      "filter": "[{\"name\":\"advanced_query\",\"value\":\"{\\\"group_type\\\":\\\"and\\\",\\\"conditions\\\":[],\\\"relationship_filter_model_type\\\":\\\"MacModelTypeDynPdcApplicationForm1\\\"}\"},{\"name\":\"advanced_sort\",\"value\":\"[]\"},{\"name\":\"type\",\"value\":\"MachineModel\"},{\"name\":\"filter_type\",\"value\":\"MachineModel\"}]",
+      "guard_sha256": null
+    },
+    {
       "key": "MacModelTypeDynPdcApplicationForm1/PDC Integration Map>Update Opportunity List",
       "model_type": "MacModelTypeDynPdcApplicationForm1",
       "theme": "PDC Integration Map",
       "button_name": "Update Opportunity List",
       "name": null,
       "to_state": "update_fluxx_with_opportunities_from_pdc",
+      "from_states": [
+        "new"
+      ],
+      "is_validation_suppressed": true,
+      "guard_strategy": "none",
+      "filter": "[{\"name\":\"advanced_query\",\"value\":\"{\\\"group_type\\\":\\\"and\\\",\\\"conditions\\\":[],\\\"relationship_filter_model_type\\\":\\\"MacModelTypeDynPdcApplicationForm1\\\"}\"},{\"name\":\"advanced_sort\",\"value\":\"[]\"},{\"name\":\"type\",\"value\":\"MachineModel\"},{\"name\":\"filter_type\",\"value\":\"MachineModel\"}]",
+      "guard_sha256": null
+    },
+    {
+      "key": "MacModelTypeDynPdcApplicationForm1/PDC Integration Map>Update PDC Field List",
+      "model_type": "MacModelTypeDynPdcApplicationForm1",
+      "theme": "PDC Integration Map",
+      "button_name": "Update PDC Field List",
+      "name": null,
+      "to_state": "update_pdc_field_list",
       "from_states": [
         "new"
       ],
