@@ -598,6 +598,14 @@ lib[:collect] = lambda do |scope, include_bodies|
     end
     e = { 'key' => "#{mt}:form", 'model_type' => mt, 'name' => primary.name }
     e['json_sha256'] = lib[:stencil_sha].call(primary['json'], volatile, masked, names)
+    # Every element needs a uid or the record page renders blank; the repo copy
+    # has none, so a form without them differs whatever its content
+    no_uid = nil
+    no_uid = lambda { |els| Array(els).any? { |x| x.is_a?(Hash) && (x['uid'].to_s.empty? || no_uid.call(x['elements'])) } }
+    if no_uid.call((JSON.parse(primary['json'].to_s)['elements'] rescue nil))
+      e['json_sha256'] = "#{e['json_sha256']} (elements without a uid)"
+      live['warnings'] << "form stencil #{primary.id} for #{mt} has elements without a uid, so the record page shows blank: click Install"
+    end
     # Raw JSON for export (the repo keeps real profile ids for reference); masked for hashing.
     e['json'] = JSON.parse(primary['json']) if include_bodies
     e['profiles'] = lib[:stencil_profiles].call(primary['json'], masked).map do |id|

@@ -45,6 +45,7 @@
 require 'json'
 require 'time'
 require 'cgi'
+require 'securerandom'
 
 lib = model.dyn_invoke_for(:"PDC Installer Lib") unless defined?(lib) && lib
 # A pasted test script embeds the bundle and sets pdc_one_off.
@@ -254,19 +255,36 @@ install = lambda do |log|
       next
     end
     doc = map_profiles.call(doc)
+    # The repo copy has no element uids (they differ per instance), but Fluxx
+    # needs one on every element or the record page renders blank: keep the
+    # live form's uid where the element is the same, otherwise a new one
     if restricted && staff_ids.empty?
       log['note'] << "form #{sp['key']} not written: choose the PDC Staff Profile (it restricts part of the form)"
       next
     end
+    give_uids = nil
+    give_uids = lambda do |els, live|
+      Array(els).each_with_index do |e, i|
+        next unless e.is_a?(Hash)
+        was = Array(live)[i]
+        same = was.is_a?(Hash) && was['element_type'] == e['element_type'] && was['name'] == e['name']
+        e['uid'] = same && !was['uid'].to_s.empty? ? was['uid'] : SecureRandom.uuid if e['uid'].to_s.empty?
+        give_uids.call(e['elements'], same ? was['elements'] : nil) if e['elements']
+      end
+    end
+    missing_uid = nil
+    missing_uid = lambda { |els| Array(els).any? { |e| e.is_a?(Hash) && (e['uid'].to_s.empty? || missing_uid.call(e['elements'])) } }
+    active = Stencil.where(model_type: sp['model_type'], deleted_at: nil).to_a.select { |f| f.enabled && lib[:form_types].call(f).include?('form') }
+    live_doc = active.size == 1 ? (JSON.parse(active.first['json'].to_s) rescue {}) : {}
+    give_uids.call(doc['elements'], live_doc.is_a?(Hash) ? live_doc['elements'] : nil)
     raw = JSON.generate(doc, ascii_only: true)
     # A PDC model has one form: with exactly one active form, it's brought up
     # to the repo in place; with none, a new form is created (deleted forms are
     # never brought back); with several, a new form named with today's date is
     # created and the others are switched off.
-    active = Stencil.where(model_type: sp['model_type'], deleted_at: nil).to_a.select { |f| f.enabled && lib[:form_types].call(f).include?('form') }
     if active.size == 1
       st = active.first
-      if lib[:stencil_sha].call(st['json'], volatile, []) == lib[:stencil_sha].call(raw, volatile, [])
+      if lib[:stencil_sha].call(st['json'], volatile, []) == lib[:stencil_sha].call(raw, volatile, []) && !missing_uid.call(live_doc.is_a?(Hash) ? live_doc['elements'] : nil)
         log['ok'] << "form #{sp['key']}"
       else
         lib[:write_stencil].call(st, raw)
