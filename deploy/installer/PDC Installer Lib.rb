@@ -170,11 +170,48 @@ end
 
 lib[:repo_ref] = lambda { |deploy_model| lib[:repo_settings].call(deploy_model)['repo_ref'] }
 
-# "owner/repo@ref", for results
+# The commit repo_ref points to right now, looked up once per run (GitHub's
+# API), so results can say which commit they ran from.
+# Returns [sha, nil] or [nil, why it couldn't be looked up].
+lib[:github_commit] = lambda do |repo_url, ref|
+  next [ref, nil] if ref.to_s =~ /\A\h{40}\z/
+  m = repo_url.to_s.strip.match(%r{github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?/?\z})
+  next [nil, "repo_url isn't a github.com repository"] unless m
+  begin
+    uri = URI.parse("https://api.github.com/repos/#{m[1]}/#{m[2]}/commits/#{ref}")
+    req = Net::HTTP::Get.new(uri)
+    req['Accept'] = 'application/vnd.github.sha'
+    req['User-Agent'] = 'fluxx-pdc-installer'
+    resp = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, open_timeout: 10, read_timeout: 20) { |http| http.request(req) }
+    sha = resp.body.to_s.strip
+    resp.code == '200' && sha =~ /\A\h{40}\z/ ? [sha, nil] : [nil, "GitHub answered HTTP #{resp.code}"]
+  rescue => e
+    [nil, "#{e.class}: #{e.message}"]
+  end
+end
+
+lib[:repo_commit] = lambda do |deploy_model|
+  rs = lib[:repo_settings].call(deploy_model)
+  key = [rs['repo_url'], rs['repo_ref']]
+  memo = deploy_model.instance_variable_get(:@pdc_repo_commit)
+  next memo[1] if memo && memo[0] == key
+  found = lib[:github_commit].call(rs['repo_url'], rs['repo_ref'])
+  deploy_model.instance_variable_set(:@pdc_repo_commit, [key, found])
+  found
+end
+
+# "main @ 8216643" (or just the ref when the commit couldn't be looked up)
+lib[:ref_label] = lambda do |deploy_model|
+  sha = lib[:repo_commit].call(deploy_model)[0]
+  ref = lib[:repo_ref].call(deploy_model)
+  sha && sha != ref ? "#{ref} @ #{sha[0, 7]}" : (sha ? sha[0, 7] : ref)
+end
+
+# "owner/repo@main @ 8216643", for results
 lib[:repo_label] = lambda do |deploy_model|
   rs = lib[:repo_settings].call(deploy_model)
   m = rs['repo_url'].match(%r{github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?/?\z})
-  "#{m ? "#{m[1]}/#{m[2]}" : rs['repo_url']}@#{rs['repo_ref']}"
+  "#{m ? "#{m[1]}/#{m[2]}" : rs['repo_url']}@#{lib[:ref_label].call(deploy_model)}"
 end
 
 lib[:raw_url] = lambda do |repo_url, ref, path|
@@ -846,7 +883,7 @@ end
 results_tone = lambda do |status|
   st = status.to_s.downcase
   if st =~ /\A(match|ok)\z/ then 'good'
-  elsif st =~ /would|skipped|kept|\Aunmarked\z|\Anote\z|already gone|not shipped/ then 'info'
+  elsif st =~ /would|skipped|kept|\Aunmarked\z|\Anote\z|\Asource\z|already gone|not shipped/ then 'info'
   elsif st =~ /\A(restored|created|recreated|overwrote|wrote|removed|cleared)/ then 'done'
   else 'bad'
   end

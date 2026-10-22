@@ -37,6 +37,33 @@ repo_url = handoff['repo_url'] || field.call(:repo_url) || saved_repo['repo_url'
 repo_ref = handoff['repo_ref'] || field.call(:repo_ref) || saved_repo['repo_ref']
 repo_ref = 'main' if repo_ref.blank?
 
+# The commit repo_ref points to now (looked up once), recorded on the record
+# and in the results. Same as lib[:github_commit], which may not exist yet on
+# a first run.
+commit = nil
+commit_note = nil
+find_commit = lambda do
+  return if commit || commit_note
+  if repo_ref.to_s =~ /\A\h{40}\z/
+    commit = repo_ref
+    return
+  end
+  m = repo_url.to_s.strip.match(%r{github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?/?\z})
+  return (commit_note = "repo_url isn't a github.com repository") unless m
+  begin
+    uri = URI.parse("https://api.github.com/repos/#{m[1]}/#{m[2]}/commits/#{repo_ref}")
+    req = Net::HTTP::Get.new(uri)
+    req['Accept'] = 'application/vnd.github.sha'
+    req['User-Agent'] = 'fluxx-pdc-installer'
+    resp = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, open_timeout: 10, read_timeout: 20) { |http| http.request(req) }
+    sha = resp.body.to_s.strip
+    resp.code == '200' && sha =~ /\A\h{40}\z/ ? (commit = sha) : (commit_note = "GitHub answered HTTP #{resp.code}")
+  rescue => e
+    commit_note = "#{e.class}: #{e.message}"
+  end
+end
+source_label = lambda { commit && commit != repo_ref ? "#{repo_ref} @ #{commit[0, 7]}" : (commit ? commit[0, 7] : repo_ref) }
+
 fetch = lambda do |path|
   m = repo_url.to_s.strip.match(%r{github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?/?\z})
   raise "repo_url must be a github.com repository URL, got #{repo_url.inspect}" unless m
@@ -76,6 +103,8 @@ result =
     end
     raise "repo_ref #{repo_ref.inspect} isn't a branch, tag or commit name" unless repo_ref.to_s =~ %r{\A[\w.\-/]+\z} && !repo_ref.to_s.include?('..')
     spec = JSON.parse(fetch.call('deploy/installer/deploy-model.json'))
+    find_commit.call
+    log << (commit ? "commit: #{commit} (#{repo_ref})" : "commit: unknown (#{commit_note})")
 
     # 0. The deploy model's theme, workflow and form. Fluxx normally creates
     # them with the model; anything missing is brought back if soft-deleted,
@@ -400,6 +429,7 @@ result =
 # Results in the same shape as the other actions, for the form
 entries = log.map do |line|
   key, status = line.to_s.split(': ', 2)
+  next { 'status' => 'source', 'key' => status } if key == 'commit'
   status = case status
            when 'exists', 'up to date' then 'ok'
            when 'created', 'restored' then status
@@ -414,13 +444,17 @@ end
 record =
   begin
     model.dyn_invoke_for(:"PDC Installer Lib")[:results_record].call(
-      'Installer update', "from #{repo_ref}", entries, result['error'] ? { 'error' => result['error'] } : {})
+      'Installer update', "from #{source_label.call}", entries, result['error'] ? { 'error' => result['error'] } : {})
   rescue => e
-    { 'title' => 'Installer update', 'mode' => "from #{repo_ref}", 'ran_at' => Time.now.utc.iso8601,
+    { 'title' => 'Installer update', 'mode' => "from #{source_label.call}", 'ran_at' => Time.now.utc.iso8601,
       'error' => [result['error'], "#{e.class}: #{e.message}"].compact.join(' / '),
       'groups' => [{ 'label' => 'log', 'tone' => 'info', 'items' => log.map { |l| { 'key' => l.to_s } } }] }
   end
 model.installer_results = JSON.generate(record) if model.respond_to?(:installer_results=)
+# Which commit the installer was last updated to (only when it worked)
+if result['ok'] && model.respond_to?(:installer_commit=)
+  model.installer_commit = commit
+end
 # Save the results and starting state, once (the flag stops this save from
 # leading to another). From After Create the record is saved already; from
 # Before New it's the record Fluxx made for the New form, which Fluxx would

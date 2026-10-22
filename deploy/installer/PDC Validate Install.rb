@@ -34,7 +34,7 @@ record =
     # and exclusions always agree with the hashes.
     live = lib[:collect].call(manifest['scope'], false)
     rows = lib[:validate].call(manifest, live, model)
-    lib[:results_record].call('Validation', "read-only, against #{lib[:repo_ref].call(model)}", rows,
+    lib[:results_record].call('Validation', "read-only, against #{lib[:ref_label].call(model)}", rows,
                               'warnings' => Array(live['warnings']))
   rescue => e
     lib[:results_record].call('Validation', 'failed', [], 'error' => "#{e.class}: #{e.message}")
