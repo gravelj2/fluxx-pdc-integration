@@ -2112,6 +2112,17 @@
       "after_enter": null
     },
     {
+      "key": "MacModelTypeDynPdcApplicationForm1:update_fluxx_field_list",
+      "model_type": "MacModelTypeDynPdcApplicationForm1",
+      "name": "update_fluxx_field_list",
+      "description": "Update Fluxx Field List",
+      "state_type": "workflow",
+      "state_order": 18,
+      "allowed_roles": "[]",
+      "before_validation_enter": "model.state = model.state_was\nmodel.dyn_invoke_for(:\"Set Fluxx Field Model Attribute Choices\")\n",
+      "after_enter": null
+    },
+    {
       "key": "MacModelTypeDynPdcApplicationForm1:update_fluxx_with_opportunities_from_pdc",
       "model_type": "MacModelTypeDynPdcApplicationForm1",
       "name": "update_fluxx_with_opportunities_from_pdc",
@@ -2120,6 +2131,17 @@
       "state_order": 9,
       "allowed_roles": "[]",
       "before_validation_enter": "model.state = model.state_was\nmodel.dyn_invoke_for(:\"Set Opportunity Dropdown Values\")\n",
+      "after_enter": null
+    },
+    {
+      "key": "MacModelTypeDynPdcApplicationForm1:update_pdc_field_list",
+      "model_type": "MacModelTypeDynPdcApplicationForm1",
+      "name": "update_pdc_field_list",
+      "description": "Update PDC Field List",
+      "state_type": "workflow",
+      "state_order": 17,
+      "allowed_roles": "[]",
+      "before_validation_enter": "model.state = model.state_was\nmodel.dyn_invoke_for(:\"Set PDC Field Model Attribute Choices\")\n",
       "after_enter": null
     }
   ],
@@ -2248,12 +2270,42 @@
       "guard": null
     },
     {
+      "key": "MacModelTypeDynPdcApplicationForm1/PDC Integration Map>Update Fluxx Field List",
+      "model_type": "MacModelTypeDynPdcApplicationForm1",
+      "theme": "PDC Integration Map",
+      "button_name": "Update Fluxx Field List",
+      "name": null,
+      "to_state": "update_fluxx_field_list",
+      "from_states": [
+        "new"
+      ],
+      "is_validation_suppressed": true,
+      "guard_strategy": "none",
+      "filter": "[{\"name\":\"advanced_query\",\"value\":\"{\\\"group_type\\\":\\\"and\\\",\\\"conditions\\\":[],\\\"relationship_filter_model_type\\\":\\\"MacModelTypeDynPdcApplicationForm1\\\"}\"},{\"name\":\"advanced_sort\",\"value\":\"[]\"},{\"name\":\"type\",\"value\":\"MachineModel\"},{\"name\":\"filter_type\",\"value\":\"MachineModel\"}]",
+      "guard": null
+    },
+    {
       "key": "MacModelTypeDynPdcApplicationForm1/PDC Integration Map>Update Opportunity List",
       "model_type": "MacModelTypeDynPdcApplicationForm1",
       "theme": "PDC Integration Map",
       "button_name": "Update Opportunity List",
       "name": null,
       "to_state": "update_fluxx_with_opportunities_from_pdc",
+      "from_states": [
+        "new"
+      ],
+      "is_validation_suppressed": true,
+      "guard_strategy": "none",
+      "filter": "[{\"name\":\"advanced_query\",\"value\":\"{\\\"group_type\\\":\\\"and\\\",\\\"conditions\\\":[],\\\"relationship_filter_model_type\\\":\\\"MacModelTypeDynPdcApplicationForm1\\\"}\"},{\"name\":\"advanced_sort\",\"value\":\"[]\"},{\"name\":\"type\",\"value\":\"MachineModel\"},{\"name\":\"filter_type\",\"value\":\"MachineModel\"}]",
+      "guard": null
+    },
+    {
+      "key": "MacModelTypeDynPdcApplicationForm1/PDC Integration Map>Update PDC Field List",
+      "model_type": "MacModelTypeDynPdcApplicationForm1",
+      "theme": "PDC Integration Map",
+      "button_name": "Update PDC Field List",
+      "name": null,
+      "to_state": "update_pdc_field_list",
       "from_states": [
         "new"
       ],
